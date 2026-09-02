@@ -21,12 +21,30 @@ function handCardMarkup(item) {
   return `<button class="hand-card${selected}" data-uid="${handEscape(item.uid)}"><span class="card-face">${image}</span></button>`;
 }
 
+function handSignature(hand) {
+  return JSON.stringify((hand || []).map((item) => [
+    item.uid,
+    Boolean(item.face_up),
+    Boolean(item.tapped),
+    item.card?.id || null,
+    item.card?.image_url || null,
+  ]));
+}
+
+function updateHand(nextHand) {
+  const normalized = Array.isArray(nextHand) ? nextHand : [];
+  if (handSignature(normalized) === handSignature(handState.hand)) return false;
+  handState.hand = normalized;
+  renderHand();
+  return true;
+}
+
 function renderHand() {
   handState.selected.forEach((uid) => {
     if (!handState.hand.some((item) => item.uid === uid)) handState.selected.delete(uid);
   });
-  hand$('hand-count').textContent = `${handState.hand.length}枚`;
-  hand$('hand-cards').innerHTML = handState.hand.length
+  hand$('#hand-count').textContent = `${handState.hand.length}枚`;
+  hand$('#hand-cards').innerHTML = handState.hand.length
     ? handState.hand.map(handCardMarkup).join('')
     : '<p class="empty-state">手札はありません。</p>';
   hand$$('.hand-card').forEach((node) => {
@@ -50,7 +68,7 @@ function hand$$(selector) { return Array.from(document.querySelectorAll(selector
 function sendHandCommand(body) {
   if (!handState.tableId) {
     if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-command', body }, window.location.origin);
-    hand$('hand-menu').classList.add('hidden');
+    hand$('#hand-menu').classList.add('hidden');
     return;
   }
   fetch(`/api/tables/${encodeURIComponent(handState.tableId)}/commands`, {
@@ -60,16 +78,15 @@ function sendHandCommand(body) {
   }).then(async (response) => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    if (data.table?.players?.[0]?.zones?.hand) handState.hand = data.table.players[0].zones.hand;
-    renderHand();
+    if (data.table?.players?.[0]?.zones?.hand) updateHand(data.table.players[0].zones.hand);
   }).catch((error) => {
     hand$('.hand-help').textContent = `操作に失敗しました: ${error.message}`;
   });
-  hand$('hand-menu').classList.add('hidden');
+  hand$('#hand-menu').classList.add('hidden');
 }
 
 function showHandPreview(item) {
-  const node = hand$('hand-viewer-content');
+  const node = hand$('#hand-viewer-content');
   if (!item || !item.face_up || !item.card) {
     node.innerHTML = '<span class="card-back viewer-back">DM</span>';
     return;
@@ -87,8 +104,7 @@ async function refreshHandFromTable() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     const nextHand = data.table?.players?.[0]?.zones?.hand || [];
-    handState.hand = nextHand;
-    renderHand();
+    updateHand(nextHand);
   } catch (error) {
     hand$('.hand-help').textContent = `テーブルとの接続を待っています…`;
   }
@@ -100,7 +116,7 @@ function showHandMenu(event, uid) {
     handState.selected.add(uid);
     renderHand();
   }
-  const menu = hand$('hand-menu');
+  const menu = hand$('#hand-menu');
   menu.innerHTML = `<button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
   menu.classList.remove('hidden');
   menu.style.left = `${Math.min(event.clientX, window.innerWidth - 220)}px`;
@@ -112,13 +128,13 @@ function showHandMenu(event, uid) {
 window.addEventListener('message', (event) => {
   if (event.origin !== window.location.origin || event.source !== window.opener || event.data?.type !== 'dm-hand-state') return;
   if (event.data.tableId) handState.tableId = String(event.data.tableId);
-  handState.hand = Array.isArray(event.data.hand) ? event.data.hand : [];
+  const backStyleChanged = handState.backStyle !== (event.data.backStyle === 'pattern' ? 'pattern' : 'dummy');
   handState.backStyle = event.data.backStyle === 'pattern' ? 'pattern' : 'dummy';
-  renderHand();
+  if (backStyleChanged) renderHand(); else updateHand(event.data.hand);
 });
 
 document.addEventListener('click', (event) => {
-  if (!event.target.closest('#hand-menu, .hand-card')) hand$('hand-menu').classList.add('hidden');
+  if (!event.target.closest('#hand-menu, .hand-card')) hand$('#hand-menu').classList.add('hidden');
 });
 
 if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-window-ready' }, window.location.origin);
