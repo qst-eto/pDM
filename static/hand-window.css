@@ -1,0 +1,25 @@
+:root { color-scheme:dark; --bg:#0d171d; --panel:#14252c; --line:#456672; --text:#edf7f5; --muted:#9db7ba; --mint:#70e4c0; --gold:#f3c86c; }
+* { box-sizing:border-box; }
+html, body { width:100%; height:100%; margin:0; }
+body { overflow:hidden; background:radial-gradient(circle at 50% 0,#1c3d45 0,#0d171d 62%); color:var(--text); font-family:"Yu Gothic",Meiryo,sans-serif; }
+.hand-app { display:flex; width:100%; height:100%; flex-direction:column; padding:18px 22px; }
+.hand-header { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(112,228,192,.32); padding-bottom:12px; }
+.eyebrow { margin:0 0 4px; color:var(--mint); font-size:10px; font-weight:900; letter-spacing:.16em; }
+h1 { margin:0; font-size:20px; }
+.hand-count { border:1px solid var(--line); border-radius:999px; color:var(--mint); padding:7px 12px; font-size:12px; }
+.hand-help { margin:10px 0 12px; color:var(--muted); font-size:11px; }
+.hand-cards { display:flex; min-height:0; flex:1; flex-wrap:wrap; align-content:flex-start; justify-content:center; gap:12px; overflow:auto; padding:8px 4px 16px; }
+.hand-card { width:clamp(86px,10vw,145px); aspect-ratio:.56; flex:0 0 auto; border:2px solid transparent; border-radius:8px; background:#112027; padding:0; overflow:hidden; cursor:pointer; }
+.hand-card.selected { border-color:var(--gold); box-shadow:0 0 0 3px rgba(243,200,108,.26); }
+.card-face, .card-back { display:grid; width:100%; height:100%; place-items:center; }
+.card-face { background:#17252b; }
+.card-face img { display:block; width:100%; height:100%; object-fit:contain; }
+.card-placeholder { display:grid; width:100%; height:100%; place-items:center; color:#a8c7ca; font-size:48px; }
+.card-back { border:1px solid #8fa7bd; background:repeating-linear-gradient(45deg,#233c59 0 7px,#395778 7px 14px); color:rgba(222,249,255,.9); font-size:18px; font-weight:900; letter-spacing:.12em; }
+.card-back.dummy-back { background:linear-gradient(145deg,#172f54,#326d85 48%,#102039); }
+.empty-state { color:var(--muted); font-size:13px; }
+.hand-menu { position:fixed; z-index:10; width:210px; border:1px solid #5b7484; border-radius:10px; background:#17232d; box-shadow:0 15px 40px rgba(0,0,0,.4); padding:6px; }
+.hand-menu button { display:block; width:100%; border:0; border-radius:6px; background:transparent; color:var(--text); padding:8px 9px; text-align:left; font:inherit; font-size:12px; }
+.hand-menu button:hover { background:#2a4550; color:var(--mint); }
+.menu-separator { height:1px; margin:5px 2px; background:var(--line); }
+.hidden { display:none !important; }

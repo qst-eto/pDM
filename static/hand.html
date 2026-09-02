@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DM Table Forge - 手札</title>
+  <link rel="stylesheet" href="/hand-window.css">
+</head>
+<body>
+  <main class="hand-app">
+    <header class="hand-header">
+      <div><p class="eyebrow">PRIVATE HAND / REMOTE MODE</p><h1>自分の手札</h1></div>
+      <span id="hand-count" class="hand-count">0枚</span>
+    </header>
+    <p class="hand-help">このウィンドウはDiscordで共有するフィールド画面とは分けて表示してください。右クリックでカードを操作できます。</p>
+    <section id="hand-cards" class="hand-cards"><p class="empty-state">本体画面でリモートモードを開始してください。</p></section>
+  </main>
+  <div id="hand-menu" class="hand-menu hidden"></div>
+  <script src="/hand-window.js"></script>
+</body>
+</html>

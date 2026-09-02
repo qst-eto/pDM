@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DM Table Forge</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="setup-screen" class="setup-screen">
+    <div class="setup-header">
+      <div>
+        <p class="eyebrow">DUEL MASTERS / TABLE FORGE</p>
+        <h1>手動対戦テーブル</h1>
+        <p class="lead">カードを選んでデッキを作り、自由操作のフィールドへ入ります。</p>
+      </div>
+      <div class="setup-status"><span id="db-status" class="status-dot"></span><span id="meta-text">カードDBを読み込み中…</span></div>
+    </div>
+    <div class="setup-grid">
+      <section class="setup-panel library-panel">
+        <div class="panel-heading"><div><p class="eyebrow">CARD LIBRARY</p><h2>カードライブラリ</h2></div><span id="result-count" class="muted"></span></div>
+        <div class="filters">
+          <input id="search" type="search" placeholder="カード名・能力・パック名で検索">
+          <select id="civil-filter"><option value="">文明：すべて</option><option value="光">光</option><option value="水">水</option><option value="闇">闇</option><option value="火">火</option><option value="自然">自然</option><option value="ゼロ">ゼロ</option></select>
+        </div>
+        <div id="library" class="card-grid"></div>
+      </section>
+      <section class="setup-panel deck-builder">
+        <div class="panel-heading"><div><p class="eyebrow">YOUR DECK</p><h2>デッキ <span id="deck-count" class="count-badge">0 / 40</span></h2></div><div class="deck-actions"><button id="load-deck" class="button button-secondary">読み込み</button><button id="save-deck" class="button button-secondary">保存</button><button id="clear-deck" class="button button-quiet">クリア</button><input id="deck-file" type="file" accept=".json,application/json" hidden></div></div>
+        <div id="deck-list" class="deck-list empty-state">カードライブラリからカードを追加してください。</div>
+        <div class="setup-footer"><p class="muted">40枚未満でも開始できます。不足分はDBのカードで補充します。</p><div class="setup-start-options"><label for="play-mode">対戦モード</label><select id="play-mode"><option value="normal">通常モード（相手側も表示）</option><option value="remote">リモートモード（手札を別ウィンドウ）</option></select><button id="start-match" class="button button-primary button-large">フィールドへ入る</button></div></div>
+      </section>
+    </div>
+  </section>
+
+  <section id="game-screen" class="game-screen hidden">
+    <header class="gamebar">
+      <div class="game-brand"><span class="brand-mark">✦</span><div><p class="eyebrow">PRIVATE TABLE / LOCAL SERVER</p><strong>DM Table Forge</strong></div></div>
+      <div class="game-status"><span id="turn-badge" class="turn-badge">WAITING</span><span id="table-id" class="muted"></span></div>
+      <div class="game-tools"><button id="hand-window-toggle" class="icon-button hidden">手札ウィンドウ</button><button id="zones-toggle" class="icon-button">ゾーン表示</button><button id="display-toggle" class="icon-button">表示設定</button><button id="fullscreen" class="icon-button">全画面</button><button id="back-setup" class="icon-button">デッキへ戻る</button></div>
+    </header>
+    <main id="field" class="field">
+      <aside id="card-viewer" class="card-viewer">
+        <div class="viewer-title">CARD VIEW</div>
+        <div id="viewer-content" class="viewer-content"><span class="muted">カードにカーソルを合わせると、ここに拡大表示します</span></div>
+      </aside>
+      <div class="field-board">
+      <section class="player-area opponent-area">
+        <div class="side-title"><span class="player-label">OPPONENT</span><strong id="opponent-name">対戦相手</strong><span id="opponent-counts" class="muted"></span></div>
+        <div class="opponent-lower-zones">
+          <div class="zone compact-zone mana-zone opponent-mana-zone" data-zone="mana" data-player="1"><div class="zone-head"><span>マナゾーン</span><em data-count="mana">0</em></div><div class="zone-content" data-content="mana"></div></div>
+          <div class="zone opponent-hand-zone" data-zone="hand" data-player="1"><div class="zone-head"><span>手札</span><em data-count="hand">0</em></div><div class="zone-content" data-content="hand"></div></div>
+          <div class="opponent-primary-zones">
+            <div class="zone compact-zone shield-zone" data-zone="shields" data-player="1"><div class="zone-head"><span>シールド</span><em data-count="shields">0</em></div><div class="zone-content" data-content="shields"></div></div>
+            <div class="zone compact-zone deck-zone" data-zone="deck" data-player="1"><div class="zone-head"><span>山札</span><button data-command="view_deck" data-player="1">見る</button></div><div class="zone-content" data-content="deck"></div><button class="zone-action" data-command="draw" data-player="1">ドロー</button></div>
+            <div class="grave-column opponent-grave-column">
+              <div class="zone compact-zone grave-zone" data-zone="graveyard" data-player="1"><div class="zone-head"><span>墓地</span><em data-count="graveyard">0</em></div><div class="zone-content" data-content="graveyard"></div></div>
+              <div class="special-zones-above opponent-special-zones">
+                <div class="zone compact-zone aux-zone" data-zone="extra" data-player="1"><div class="zone-head"><span>超次元</span><em data-count="extra">0</em></div><div class="zone-content" data-content="extra"></div></div>
+                <div class="zone compact-zone aux-zone" data-zone="gachi" data-player="1"><div class="zone-head"><span>ガチャレンジ</span><em data-count="gachi">0</em></div><div class="zone-content" data-content="gachi"></div></div>
+                <div class="zone compact-zone aux-zone" data-zone="abyss" data-player="1"><div class="zone-head"><span>深淵</span><em data-count="abyss">0</em></div><div class="zone-content" data-content="abyss"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="battle-label"><span>相手のバトルゾーン</span><em data-count="opponent-battle">0</em></div>
+        <div class="zone opponent-battle-zone" data-zone="battle" data-player="1"><div class="zone-content" data-content="battle"></div></div>
+      </section>
+
+      <div class="field-center"><span class="center-rule"></span><div><div id="field-message">カードを右クリックすると操作メニューが開きます</div><div id="log-strip" class="log-strip"></div></div><span class="center-rule"></span></div>
+
+      <section class="player-area self-area">
+        <div class="battle-label"><span>あなたのバトルゾーン</span><em data-count="self-battle">0</em></div>
+        <div class="zone self-battle-zone" data-zone="battle" data-player="0"><div class="zone-content" data-content="battle"></div></div>
+        <div class="self-lower-zones">
+          <div class="self-primary-zones">
+            <div class="zone compact-zone shield-zone" data-zone="shields" data-player="0"><div class="zone-head"><span>シールド</span><em data-count="shields">0</em></div><div class="zone-content" data-content="shields"></div></div>
+            <div class="zone compact-zone deck-zone" data-zone="deck" data-player="0"><div class="zone-head"><span>山札</span><button data-command="view_deck" data-player="0">見る</button></div><div class="zone-content" data-content="deck"></div><button class="zone-action" data-command="draw" data-player="0">ドロー</button></div>
+            <div class="grave-column">
+              <div class="special-zones-above">
+                <div class="zone compact-zone aux-zone" data-zone="extra" data-player="0"><div class="zone-head"><span>超次元</span><em data-count="extra">0</em></div><div class="zone-content" data-content="extra"></div></div>
+                <div class="zone compact-zone aux-zone" data-zone="gachi" data-player="0"><div class="zone-head"><span>ガチャレンジ</span><em data-count="gachi">0</em></div><div class="zone-content" data-content="gachi"></div></div>
+                <div class="zone compact-zone aux-zone" data-zone="abyss" data-player="0"><div class="zone-head"><span>深淵</span><em data-count="abyss">0</em></div><div class="zone-content" data-content="abyss"></div></div>
+              </div>
+              <div class="zone compact-zone grave-zone" data-zone="graveyard" data-player="0"><div class="zone-head"><span>墓地</span><em data-count="graveyard">0</em></div><div class="zone-content" data-content="graveyard"></div></div>
+            </div>
+          </div>
+          <div class="zone self-hand-zone" data-zone="hand" data-player="0"><div class="zone-head"><span>手札</span><em data-count="hand">0</em></div><div class="zone-content" data-content="hand"></div></div>
+          <div class="zone compact-zone mana-zone self-mana-zone" data-zone="mana" data-player="0"><div class="zone-head"><span>マナゾーン</span><em data-count="mana">0</em></div><div class="zone-content" data-content="mana"></div></div>
+        </div>
+      </section>
+      </div>
+    </main>
+    <footer class="actionbar"><div id="selection-count" class="selection-count">0枚選択中</div><button data-action="tap" class="button button-secondary">タップ</button><button data-action="untap" class="button button-secondary">アンタップ</button><button data-action="face_up" class="button button-secondary">表向き</button><button data-action="face_down" class="button button-secondary">裏向き</button><button id="shuffle-deck" data-command="shuffle_deck" data-player="0" class="button button-secondary">山札をシャッフル</button><button id="clear-selection" class="button button-quiet">選択解除</button></footer>
+  </section>
+
+  <div id="context-menu" class="context-menu hidden"></div>
+  <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">DECK VIEW</p><h2>山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
+  <div id="zone-settings" class="zone-settings hidden"><p class="eyebrow">VISIBLE ZONES</p><label><input type="checkbox" data-zone-toggle="extra" checked> 超次元</label><label><input type="checkbox" data-zone-toggle="gachi" checked> ガチャレンジ</label><label><input type="checkbox" data-zone-toggle="abyss" checked> 深淵</label></div>
+  <div id="display-settings" class="display-settings hidden"><p class="eyebrow">DISPLAY SETTINGS</p><label>カードサイズ <input id="card-scale" type="range" min="0.9" max="1.25" step="0.05" value="1.1"><output id="card-scale-value">110%</output></label><label>カード縦比率 <input id="card-height-percent" type="range" min="60" max="100" step="5" value="100"><output id="card-height-percent-value">100%</output></label><label>自分バトル比率 <input id="self-battle-size" type="range" min="160" max="360" step="10" value="250"><output id="self-battle-size-value">58%</output></label><label>自分補助比率 <input id="self-lower-size" type="range" min="120" max="260" step="10" value="180"><output id="self-lower-size-value">42%</output></label><label>相手バトル比率 <input id="opponent-battle-size" type="range" min="140" max="330" step="10" value="220"><output id="opponent-battle-size-value">64%</output></label><label>相手補助比率 <input id="opponent-lower-size" type="range" min="80" max="200" step="10" value="125"><output id="opponent-lower-size-value">36%</output></label><label>ゾーン名 <select id="label-position"><option value="corner">右下</option><option value="top">上部</option></select></label><label>裏面表示 <select id="back-style"><option value="dummy">ダミー画像</option><option value="pattern">シンプル柄</option></select></label></div>
+  <div id="selection-box" class="selection-box hidden"></div>
+  <div id="notice" class="notice"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
