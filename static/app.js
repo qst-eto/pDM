@@ -205,8 +205,9 @@ function openHandWindow() {
     state.handWindow.focus();
     return;
   }
+  const handUrl = state.table ? `/hand.html?table=${encodeURIComponent(state.table.id)}` : '/hand.html';
   state.handWindow = window.open(
-    '/hand.html',
+    handUrl,
     'dm-table-forge-hand',
     'popup=yes,resizable=yes,scrollbars=yes,width=1050,height=680',
   );
@@ -228,6 +229,12 @@ function syncHandWindow() {
   }, window.location.origin);
 }
 
+function setHandWindowTable() {
+  if (state.mode !== 'remote' || !state.table || !state.handWindow || state.handWindow.closed) return;
+  state.handWindow.location.href = `/hand.html?table=${encodeURIComponent(state.table.id)}`;
+  state.handWindow.focus();
+}
+
 async function startTable() {
   state.mode = $('#play-mode').value === 'remote' ? 'remote' : 'normal';
   if (state.mode === 'remote') openHandWindow(); else closeHandWindow();
@@ -242,6 +249,7 @@ async function startTable() {
     $('#game-screen').classList.remove('hidden');
     $('#game-screen').classList.toggle('remote-mode', state.mode === 'remote');
     $('#hand-window-toggle').classList.toggle('hidden', state.mode !== 'remote');
+    setHandWindowTable();
     renderTable();
     fitGameField();
   } catch (error) {

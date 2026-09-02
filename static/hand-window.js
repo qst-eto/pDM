@@ -1,4 +1,9 @@
-const handState = { hand: [], selected: new Set(), backStyle: 'dummy' };
+const handState = {
+  hand: [],
+  selected: new Set(),
+  backStyle: 'dummy',
+  tableId: new URLSearchParams(window.location.search).get('table') || '',
+};
 const hand$ = (selector) => document.querySelector(selector);
 
 function handEscape(value) {
@@ -36,14 +41,57 @@ function renderHand() {
       renderHand();
     });
     node.addEventListener('contextmenu', (event) => { event.preventDefault(); showHandMenu(event, node.dataset.uid); });
+    node.addEventListener('pointerenter', () => showHandPreview(handState.hand.find((item) => item.uid === node.dataset.uid)));
   });
 }
 
 function hand$$(selector) { return Array.from(document.querySelectorAll(selector)); }
 
 function sendHandCommand(body) {
-  if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-command', body }, window.location.origin);
+  if (!handState.tableId) {
+    if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-command', body }, window.location.origin);
+    hand$('hand-menu').classList.add('hidden');
+    return;
+  }
+  fetch(`/api/tables/${encodeURIComponent(handState.tableId)}/commands`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async (response) => {
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (data.table?.players?.[0]?.zones?.hand) handState.hand = data.table.players[0].zones.hand;
+    renderHand();
+  }).catch((error) => {
+    hand$('.hand-help').textContent = `操作に失敗しました: ${error.message}`;
+  });
   hand$('hand-menu').classList.add('hidden');
+}
+
+function showHandPreview(item) {
+  const node = hand$('hand-viewer-content');
+  if (!item || !item.face_up || !item.card) {
+    node.innerHTML = '<span class="card-back viewer-back">DM</span>';
+    return;
+  }
+  const image = item.card.image_url
+    ? `<img src="${handEscape(item.card.image_url)}" alt="" onerror="this.remove()">`
+    : `<span class="card-placeholder">${handEscape((item.card.civiltxt || '◇').slice(0, 1))}</span>`;
+  node.innerHTML = `<div class="viewer-art">${image}</div><p class="viewer-ability">${handEscape(item.card.abilitytxt || '')}</p>`;
+}
+
+async function refreshHandFromTable() {
+  if (!handState.tableId) return;
+  try {
+    const response = await fetch(`/api/tables/${encodeURIComponent(handState.tableId)}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const nextHand = data.table?.players?.[0]?.zones?.hand || [];
+    handState.hand = nextHand;
+    renderHand();
+  } catch (error) {
+    hand$('.hand-help').textContent = `テーブルとの接続を待っています…`;
+  }
 }
 
 function showHandMenu(event, uid) {
@@ -63,6 +111,7 @@ function showHandMenu(event, uid) {
 
 window.addEventListener('message', (event) => {
   if (event.origin !== window.location.origin || event.source !== window.opener || event.data?.type !== 'dm-hand-state') return;
+  if (event.data.tableId) handState.tableId = String(event.data.tableId);
   handState.hand = Array.isArray(event.data.hand) ? event.data.hand : [];
   handState.backStyle = event.data.backStyle === 'pattern' ? 'pattern' : 'dummy';
   renderHand();
@@ -73,3 +122,6 @@ document.addEventListener('click', (event) => {
 });
 
 if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-window-ready' }, window.location.origin);
+
+refreshHandFromTable();
+window.setInterval(refreshHandFromTable, 1000);

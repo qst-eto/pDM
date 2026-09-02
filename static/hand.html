@@ -13,7 +13,13 @@
       <span id="hand-count" class="hand-count">0枚</span>
     </header>
     <p class="hand-help">このウィンドウはDiscordで共有するフィールド画面とは分けて表示してください。右クリックでカードを操作できます。</p>
-    <section id="hand-cards" class="hand-cards"><p class="empty-state">本体画面でリモートモードを開始してください。</p></section>
+    <div class="hand-layout">
+      <section id="hand-cards" class="hand-cards"><p class="empty-state">本体画面でリモートモードを開始してください。</p></section>
+      <aside class="hand-viewer">
+        <div class="viewer-title">CARD VIEW</div>
+        <div id="hand-viewer-content" class="hand-viewer-content"><span class="empty-state">カードにカーソルを合わせると、ここに拡大表示します</span></div>
+      </aside>
+    </div>
   </main>
   <div id="hand-menu" class="hand-menu hidden"></div>
   <script src="/hand-window.js"></script>
