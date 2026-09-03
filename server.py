@@ -16,12 +16,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
 # DBや画像を別の場所へ移す場合は、この設定欄だけを変更してください。
-DATABASE_DIRECTORY = PROJECT_ROOT
+DATABASE_DIRECTORY = Path(r'C:\Users\andy2\Desktop\DM\projectDM\dm_data')
 DATABASE_FILENAME = 'Duelmasters.db'
 DATABASE_PATH = DATABASE_DIRECTORY / DATABASE_FILENAME
+
 IMAGE_DIRECTORIES = (
-    PROJECT_ROOT / 'card_images',
-    PROJECT_ROOT / 'dm_data',
+    Path(r'C:\Users\andy2\Desktop\DM\projectDM\dm_data'),
 )
 IMAGE_ROOTS = IMAGE_DIRECTORIES
 HOST = '0.0.0.0'
@@ -32,6 +32,7 @@ INITIAL_SHIELDS = 5
 
 ZONES = ('deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss')
 ZONE_LABELS = {
+    'shields': 'シールドゾーン',
     'deck': '山札',
     'hand': '手札',
     'mana': 'マナ',
@@ -275,7 +276,8 @@ def public_player(player, player_index):
     return {
         'name': player['name'],
         'zones': zones,
-        'shields': [serialize_item(item, False) for item in player['shields']],
+        # 裏向きシールドは隠し、表向きシールドは両プレイヤーへ公開する。
+        'shields': [serialize_item(item, bool(item.get('face_up'))) for item in player['shields']],
         'counts': {zone: len(player['zones'][zone]) for zone in ZONES},
         'shield_count': len(player['shields']),
     }
@@ -292,7 +294,7 @@ def public_table(table):
 
 
 def move_cards(table, card_ids, target_zone, target_player=0, position='append'):
-    if target_zone not in ZONES:
+    if target_zone not in ZONES and target_zone != 'shields':
         return False, '移動先ゾーンが不正です。'
     if not isinstance(card_ids, list) or not card_ids:
         return False, 'カードが選択されていません。'
@@ -315,7 +317,12 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
             table['players'][located[0]]['zones'][located[1]].pop(located[2])
 
     keep_face_down = bool(position == 'keep_face_down')
-    if target_zone in ('deck', 'gachi'):
+    if target_zone == 'shields':
+        for item in moving:
+            item['face_up'] = position == 'face_up'
+            item['tapped'] = False
+        table['players'][target_player]['shields'].extend(moving)
+    elif target_zone in ('deck', 'gachi'):
         for item in moving:
             item['face_up'] = False
             item['tapped'] = False

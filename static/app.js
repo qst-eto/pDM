@@ -13,6 +13,7 @@ const state = {
   displaySettings: {
     cardScale: 1.1,
     cardHeightPercent: 100,
+    battleCardWidth: 0.56,
     labelPosition: 'corner',
     backStyle: 'dummy',
     selfBattleSize: 250,
@@ -326,7 +327,7 @@ function renderZone(playerIndex, zone) {
   zoneNode.classList.remove('zone-hidden');
   zoneNode.classList.toggle('expanded-zone', isZoneExpanded(playerIndex, zone));
   if (zone === 'shields') {
-    content.innerHTML = items.map((item) => itemMarkup({ ...item, card: null }, { player: playerIndex, zone, compact: true, hideCard: true })).join('') || '<span class="muted">なし</span>';
+    content.innerHTML = items.map((item) => itemMarkup(item, { player: playerIndex, zone, compact: true, hideCard: !item.face_up })).join('') || '<span class="muted">なし</span>';
     return;
   }
   if (zone === 'deck' || zone === 'gachi') {
@@ -348,6 +349,10 @@ function renderZone(playerIndex, zone) {
 }
 
 function renderShields(playerIndex) { renderZone(playerIndex, 'shields'); }
+
+function tableStateChanged(nextTable) {
+  return JSON.stringify(state.table) !== JSON.stringify(nextTable);
+}
 
 function renderTable() {
   const table = state.table;
@@ -396,7 +401,7 @@ function showPreview(card) {
 function showMenu(event, uid) {
   if (!state.selected.has(uid)) selectCard(uid);
   const node = $('#context-menu');
-  node.innerHTML = `<button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="extra">超次元へ</button><button data-menu-command="move" data-zone="gachi">ガチャレンジへ</button><button data-menu-command="move" data-zone="abyss">深淵へ</button><div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
+  node.innerHTML = `<button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button><button data-menu-command="move" data-zone="extra">超次元へ</button><button data-menu-command="move" data-zone="gachi">ガチャレンジへ</button><button data-menu-command="move" data-zone="abyss">深淵へ</button><div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
   node.classList.remove('hidden');
   node.style.left = `${Math.min(event.clientX, window.innerWidth - 220)}px`;
   node.style.top = `${Math.min(event.clientY, window.innerHeight - 430)}px`;
@@ -471,6 +476,7 @@ function applyDisplaySettings() {
   const settings = state.displaySettings;
   settings.cardScale = Math.min(1.25, Math.max(0.9, Number(settings.cardScale) || 1.1));
   settings.cardHeightPercent = Math.min(100, Math.max(60, Number(settings.cardHeightPercent) || 100));
+  settings.battleCardWidth = Math.min(0.8, Math.max(0.45, Number(settings.battleCardWidth) || 0.56));
   settings.labelPosition = ['corner', 'top'].includes(settings.labelPosition) ? settings.labelPosition : 'corner';
   settings.backStyle = ['dummy', 'pattern'].includes(settings.backStyle) ? settings.backStyle : 'dummy';
   settings.selfBattleSize = Math.min(360, Math.max(160, Number(settings.selfBattleSize) || 250));
@@ -478,6 +484,7 @@ function applyDisplaySettings() {
   settings.selfLowerSize = Math.min(260, Math.max(120, Number(settings.selfLowerSize) || 180));
   settings.opponentLowerSize = Math.min(200, Math.max(80, Number(settings.opponentLowerSize) || 125));
   document.documentElement.style.setProperty('--card-scale', String(settings.cardScale));
+  document.documentElement.style.setProperty('--battle-card-width-ratio', String(settings.battleCardWidth));
   document.documentElement.style.setProperty('--self-battle-row', `${settings.selfBattleSize}fr`);
   document.documentElement.style.setProperty('--opponent-battle-row', `${settings.opponentBattleSize}fr`);
   document.documentElement.style.setProperty('--self-lower-row', `${settings.selfLowerSize}fr`);
@@ -488,6 +495,8 @@ function applyDisplaySettings() {
   $('#card-scale-value').textContent = `${Math.round(settings.cardScale * 100)}%`;
   $('#card-height-percent').value = String(settings.cardHeightPercent);
   $('#card-height-percent-value').textContent = `${Math.round(settings.cardHeightPercent)}%`;
+  $('#battle-card-width').value = String(settings.battleCardWidth);
+  $('#battle-card-width-value').textContent = `${Math.round(settings.battleCardWidth * 100)}%`;
   $('#self-battle-size').value = String(settings.selfBattleSize);
   const selfTotal = settings.selfBattleSize + settings.selfLowerSize;
   const opponentTotal = settings.opponentBattleSize + settings.opponentLowerSize;
@@ -567,7 +576,10 @@ function fitZoneCards() {
     for (let rows = 1; rows <= maxRows; rows += 1) {
       const columns = Math.ceil(cards.length / rows);
       const heightLimit = (availableHeight - gap * (rows - 1)) / rows;
-      const widthLimit = (availableWidth - gap * (columns - 1)) / columns / 0.56;
+      const ratio = zoneNode.matches('.self-battle-zone, .opponent-battle-zone')
+        ? (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--battle-card-width-ratio')) || 0.56)
+        : 0.56;
+      const widthLimit = (availableWidth - gap * (columns - 1)) / columns / ratio;
       bestHeight = Math.max(bestHeight, Math.min(heightLimit * heightRatio, widthLimit));
     }
 
@@ -678,6 +690,7 @@ $('#clear-selection').addEventListener('click', () => { state.selected.clear(); 
 
 $('#card-scale').addEventListener('input', (event) => { state.displaySettings.cardScale = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 $('#card-height-percent').addEventListener('input', (event) => { state.displaySettings.cardHeightPercent = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
+$('#battle-card-width').addEventListener('input', (event) => { state.displaySettings.battleCardWidth = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 [['self-battle-size', 'selfBattleSize'], ['opponent-battle-size', 'opponentBattleSize'], ['self-lower-size', 'selfLowerSize'], ['opponent-lower-size', 'opponentLowerSize']].forEach(([id, key]) => {
   $(`#${id}`).addEventListener('input', (event) => { state.displaySettings[key] = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 });
@@ -707,10 +720,10 @@ $('#field').addEventListener('drop', (event) => {
   if (!zone) return;
   event.preventDefault();
   const uid = event.dataTransfer.getData('text/plain');
-  if (uid && zone.dataset.zone !== 'shields') sendCommand({ command: 'move', card_ids: [uid], zone: zone.dataset.zone, target_player: Number(zone.dataset.player) });
+  if (uid) sendCommand({ command: 'move', card_ids: [uid], zone: zone.dataset.zone, target_player: Number(zone.dataset.player) });
 });
 $$('[data-zone-toggle]').forEach((input) => input.addEventListener('change', () => { const zone = input.dataset.zoneToggle; if (input.checked) state.hiddenZones.delete(zone); else state.hiddenZones.add(zone); renderTable(); }));
-$$('[data-inspector-move]').forEach((button) => button.addEventListener('click', () => { if (state.inspectorSelected.size) sendCommand({ command: 'move', card_ids: Array.from(state.inspectorSelected), zone: button.dataset.inspectorMove, target_player: 0 }); }));
+$$('[data-inspector-move]').forEach((button) => button.addEventListener('click', () => { if (state.inspectorSelected.size) sendCommand({ command: 'move', card_ids: Array.from(state.inspectorSelected), zone: button.dataset.inspectorMove, position: button.dataset.position || 'append', target_player: 0 }); }));
 $$('[data-inspector-position]').forEach((button) => button.addEventListener('click', () => { if (state.inspectorSelected.size) sendCommand({ command: 'move', card_ids: Array.from(state.inspectorSelected), zone: 'deck', position: button.dataset.inspectorPosition, target_player: 0 }); }));
 $('[data-inspector-shuffle]').addEventListener('click', () => { if (state.inspectorSelected.size) sendCommand({ command: 'move', card_ids: Array.from(state.inspectorSelected), zone: 'deck', position: 'shuffle', target_player: 0 }); });
 
@@ -735,8 +748,10 @@ window.setInterval(async () => {
   if (!state.table || document.hidden) return;
   try {
     const data = await api(`/api/tables/${state.table.id}`);
-    state.table = data.table;
-    renderTable();
+    if (tableStateChanged(data.table)) {
+      state.table = data.table;
+      renderTable();
+    }
   } catch (error) {
     // 一時的な通信失敗は次回のポーリングで再試行する。
   }

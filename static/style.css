@@ -40,7 +40,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .civil-fire { background:linear-gradient(145deg,#f17856,#8c293f); }
 .civil-nature { background:linear-gradient(145deg,#86c972,#246b5d); }
 .civil-zero { background:linear-gradient(145deg,#abb9c5,#536375); }
-.card-image { position:absolute; inset:0; z-index:2; width:100%; height:100%; object-fit:cover; }
+.card-image { position:absolute; inset:0; z-index:2; width:100%; height:100%; object-fit:contain; }
 .card-art .cost { position:absolute; top:6px; left:6px; z-index:4; display:grid; width:24px; height:24px; place-items:center; border:2px solid rgba(255,255,255,.78); border-radius:50%; background:rgba(10,15,25,.72); color:#fff; font-size:11px; font-weight:900; }
 .art-mark { position:absolute; right:8px; bottom:3px; z-index:1; color:rgba(255,255,255,.54); font-size:27px; font-weight:900; }
 .deck-list { display:flex; min-height:390px; flex-wrap:wrap; align-content:flex-start; gap:7px; margin-top:18px; }
@@ -193,7 +193,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .compact-zone.expanded-zone .mana-orb { width:14px; height:14px; }
 
 /* 表示設定でカードを拡大しても、ゾーン名がカードの縦幅を奪わないようにする。 */
-:root { --card-scale:1.1; --field-fit:1; --card-art-height:calc(88px * var(--card-scale)); --self-battle-art-height:calc(88px * var(--card-scale)); --opponent-battle-art-height:calc(88px * var(--card-scale)); --self-shield-art-height:calc(70px * var(--card-scale)); --opponent-shield-art-height:calc(70px * var(--card-scale)); --self-hand-art-height:calc(70px * var(--card-scale)); --opponent-hand-art-height:calc(70px * var(--card-scale)); --self-primary-art-height:calc(60px * var(--card-scale)); --opponent-primary-art-height:calc(60px * var(--card-scale)); }
+:root { --card-scale:1.1; --field-fit:1; --battle-card-width-ratio:.56; --card-art-height:calc(88px * var(--card-scale)); --self-battle-art-height:calc(88px * var(--card-scale)); --opponent-battle-art-height:calc(88px * var(--card-scale)); --self-shield-art-height:calc(70px * var(--card-scale)); --opponent-shield-art-height:calc(70px * var(--card-scale)); --self-hand-art-height:calc(70px * var(--card-scale)); --opponent-hand-art-height:calc(70px * var(--card-scale)); --self-primary-art-height:calc(60px * var(--card-scale)); --opponent-primary-art-height:calc(60px * var(--card-scale)); }
 .field { position:relative; overflow:hidden; zoom:var(--field-fit); }
 .zone { padding:3px; }
 .zone-head { position:absolute; right:4px; bottom:3px; z-index:8; width:max-content; max-width:calc(100% - 8px); height:auto; border-radius:4px; background:rgba(10,20,27,.76); padding:1px 3px; pointer-events:none; font-size:9px; line-height:1.25; }
@@ -272,6 +272,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .opponent-battle-zone .table-card { flex-basis:calc(var(--opponent-battle-art-height) * .56); }
 .opponent-battle-zone .table-card .card-art { height:var(--opponent-battle-art-height); min-height:var(--opponent-battle-art-height); }
 .opponent-battle-zone .card-back { width:calc(var(--opponent-battle-art-height) * .56); height:var(--opponent-battle-art-height); }
+.self-battle-zone .card-image, .opponent-battle-zone .card-image { object-fit:contain; }
 
 /* 左側をカード確認専用、右側を実際の対戦フィールドとして分離する。 */
 .field {
@@ -553,6 +554,11 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
   min-width:0;
   min-height:0;
 }
+.field-board .self-battle-zone .table-card,
+.field-board .opponent-battle-zone .table-card {
+  width:calc(var(--zone-card-height,48px) * var(--battle-card-width-ratio));
+  flex-basis:calc(var(--zone-card-height,48px) * var(--battle-card-width-ratio));
+}
 .field-board .zone .table-card .card-art,
 .field-board .zone .table-card .card-back {
   width:100%;
@@ -580,9 +586,8 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .setup-start-options label { color:var(--muted); font-size:11px; }
 .setup-start-options select { min-width:220px; }
 
-/* リモートモードはDiscordで共有する本体画面から手札を取り除き、自分のフィールドだけを広く表示する。 */
-.game-screen.remote-mode .field { grid-template-columns:minmax(0,1fr); }
-.game-screen.remote-mode .card-viewer,
+/* リモートモードは手札を別ウィンドウへ分離し、自分のフィールドとカード確認を表示する。 */
+.game-screen.remote-mode .field { grid-template-columns:minmax(190px,22%) minmax(0,1fr); }
 .game-screen.remote-mode .opponent-area,
 .game-screen.remote-mode .field-center { display:none; }
 .game-screen.remote-mode .field-board {
