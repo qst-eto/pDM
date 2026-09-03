@@ -95,6 +95,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .wide-hand .zone-content { flex-wrap:nowrap; }
 .card-back { position:relative; width:31px; height:45px; flex:0 0 auto; border:1px solid #8fa7bd; border-radius:5px; background:repeating-linear-gradient(45deg,#233c59 0 4px,#395778 4px 8px); }
 .table-card { position:relative; flex:0 0 57px; border:1px solid #617c8d; border-radius:6px; background:#15202a; padding:0; overflow:visible; text-align:left; transition:transform .12s, border-color .12s; }
+.stack-badge { position:absolute; right:-4px; bottom:-5px; z-index:10; border:1px solid #7dc8b1; border-radius:999px; background:#173b3a; color:#d8fff1; padding:2px 4px; font-size:8px; line-height:1; white-space:nowrap; }
 .table-card:hover { z-index:20; transform:translateY(-3px); border-color:var(--mint); }
 .table-card.selected { border-color:var(--gold); box-shadow:0 0 0 2px rgba(243,200,108,.35); transform:translateY(-5px); }
 .table-card.tapped { transform:rotate(90deg); margin:7px 8px; }
@@ -119,9 +120,12 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .actionbar { display:flex; flex:0 0 49px; align-items:center; justify-content:flex-end; gap:7px; border-top:1px solid rgba(105,145,147,.38); background:rgba(13,21,27,.86); padding:7px 16px; }
 .selection-count { margin-right:auto; color:var(--muted); font-size:11px; }
 
-.context-menu { position:fixed; z-index:100; width:210px; border:1px solid #5b7484; border-radius:10px; background:#17232d; box-shadow:0 15px 40px rgba(0,0,0,.4); padding:6px; }
+.context-menu { position:fixed; z-index:100; width:210px; max-height:calc(100vh - 16px); overflow-y:auto; border:1px solid #5b7484; border-radius:10px; background:#17232d; box-shadow:0 15px 40px rgba(0,0,0,.4); padding:6px; }
 .context-menu button { display:block; width:100%; border:0; border-radius:6px; background:transparent; color:var(--text); padding:7px 9px; text-align:left; font-size:11px; }
 .context-menu button:hover { background:#2a4550; color:var(--mint); }
+.context-menu-title { border-bottom:1px solid var(--line); margin:1px 2px 5px; padding:4px 7px 8px; color:var(--mint); font-size:11px; font-weight:700; }
+.context-menu-field { display:block; padding:5px 7px; color:var(--muted); font-size:10px; }
+.context-menu-field select { display:block; width:100%; margin-top:4px; border:1px solid var(--line); border-radius:5px; background:#101a22; color:var(--text); padding:5px; font:inherit; }
 .menu-separator { height:1px; margin:5px 2px; background:var(--line); }
 .modal { position:fixed; inset:0; z-index:90; display:grid; place-items:center; background:rgba(4,9,13,.75); backdrop-filter:blur(5px); }
 .modal-card { width:min(850px,calc(100vw - 50px)); max-height:calc(100vh - 70px); overflow:auto; border:1px solid #587583; border-radius:16px; background:#1b2833; box-shadow:0 25px 80px rgba(0,0,0,.55); padding:20px; }
@@ -132,6 +136,15 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .inspector-card .card-art { height:125px; }
 .inspector-card .card-name { height:35px; font-size:9px; }
 .inspector-actions { display:flex; flex-wrap:wrap; gap:7px; border-top:1px solid var(--line); padding-top:14px; }
+.saved-decks-panel { border-top:1px solid var(--line); margin-top:18px; padding-top:13px; }
+.saved-decks-heading { margin-bottom:8px; }
+.saved-decks-heading h3 { margin:0; font-size:14px; }
+.saved-deck-list { display:grid; max-height:190px; gap:8px; margin-top:10px; overflow:auto; padding:2px; }
+.saved-deck-item { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; border:1px solid var(--line); border-radius:9px; background:#141d26; color:var(--text); padding:11px 13px; text-align:left; }
+.saved-deck-item:hover { border-color:var(--mint); background:#20343b; }
+.saved-deck-item strong, .saved-deck-item small { display:block; }
+.saved-deck-item small { margin-top:4px; color:var(--muted); font-size:10px; }
+.saved-deck-open { flex:0 0 auto; color:var(--mint); font-size:11px; }
 .zone-settings { position:fixed; top:61px; right:20px; z-index:70; width:160px; border:1px solid var(--line); border-radius:10px; background:#17232d; box-shadow:0 15px 40px rgba(0,0,0,.35); padding:12px; }
 .zone-settings label { display:block; margin-top:9px; color:#c6d5d8; font-size:11px; }
 .zone-settings input { width:auto; margin-right:5px; padding:0; }

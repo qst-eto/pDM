@@ -119,8 +119,11 @@ function showHandMenu(event, uid) {
   const menu = hand$('#hand-menu');
   menu.innerHTML = `<button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button><button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
   menu.classList.remove('hidden');
-  menu.style.left = `${Math.min(event.clientX, window.innerWidth - 220)}px`;
-  menu.style.top = `${Math.min(event.clientY, window.innerHeight - 300)}px`;
+  const margin = 8;
+  const menuWidth = menu.offsetWidth || 210;
+  const menuHeight = menu.offsetHeight || 300;
+  menu.style.left = `${Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin))}px`;
+  menu.style.top = `${Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin))}px`;
   menu.querySelectorAll('[data-zone]').forEach((button) => button.addEventListener('click', () => sendHandCommand({ command: 'move', card_ids: Array.from(handState.selected), zone: button.dataset.zone, position: button.dataset.position || 'append', target_player: 0 })));
   menu.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => sendHandCommand({ command: button.dataset.command, card_ids: Array.from(handState.selected), value: button.dataset.value === 'true' })));
 }
