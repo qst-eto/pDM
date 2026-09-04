@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DM Table Forge - 手札</title>
   <link rel="stylesheet" href="/hand-window.css">
+  <link rel="stylesheet" href="/stack-mode.css">
 </head>
 <body>
   <main class="hand-app">
@@ -13,6 +14,7 @@
       <span id="hand-count" class="hand-count">0枚</span>
     </header>
     <p class="hand-help">このウィンドウはDiscordで共有するフィールド画面とは分けて表示してください。右クリックでカードを操作できます。</p>
+    <div id="hand-stack-mode" class="stack-mode-bar hidden"></div>
     <div class="hand-layout">
       <section id="hand-cards" class="hand-cards"><p class="empty-state">本体画面でリモートモードを開始してください。</p></section>
       <aside class="hand-viewer">
@@ -22,6 +24,7 @@
     </div>
   </main>
   <div id="hand-menu" class="hand-menu hidden"></div>
+  <script src="/stack-mode.js"></script>
   <script src="/hand-window.js"></script>
 </body>
 </html>

@@ -17,12 +17,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
 # DBや画像を別の場所へ移す場合は、この設定欄だけを変更してください。
-DATABASE_DIRECTORY = Path(r'C:\Users\andy2\Desktop\DM\projectDM\dm_data')
+DATABASE_DIRECTORY = PROJECT_ROOT
 DATABASE_FILENAME = 'Duelmasters.db'
 DATABASE_PATH = DATABASE_DIRECTORY / DATABASE_FILENAME
 
 IMAGE_DIRECTORIES = (
-    Path(r'C:\Users\andy2\Desktop\DM\projectDM\dm_data'),
+    PROJECT_ROOT / 'dm_data',
 )
 IMAGE_ROOTS = IMAGE_DIRECTORIES
 DECK_DIRECTORY = Path(__file__).resolve().parent / 'saved_decks'
@@ -361,7 +361,7 @@ def public_player(player, player_index):
         'name': player['name'],
         'zones': zones,
         # 裏向きシールドは隠し、表向きシールドは両プレイヤーへ公開する。
-        'shields': [serialize_item(item, bool(item.get('face_up'))) for item in player['shields']],
+        'shields': [serialize_item(item, True) for item in player['shields']],
         'counts': {zone: count_stack_items(player['zones'][zone]) for zone in ZONES},
         'shield_count': count_stack_items(player['shields']),
     }
@@ -385,17 +385,15 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
     if target_player not in (0, 1):
         return False, 'プレイヤー指定が不正です。'
 
-    moving = []
-    for uid in card_ids:
-        located = locate_card(table, uid)
-        if located and located[3] not in moving:
-            moving.append(located[3])
+    moving = selected_items(table, card_ids)
     if not moving:
         return False, '対象カードが見つかりません。'
 
     for item in moving:
-        located = locate_card(table, item['uid'])
-        located[4].pop(located[2])
+        if not detach_item(table, item):
+            return False, '対象カードが見つかりません。'
+
+    moving = list(flattened_stack_items(moving))
 
     keep_face_down = bool(position == 'keep_face_down')
     if target_zone == 'shields':
@@ -423,7 +421,7 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
     return True, ''
 
 
-def stack_cards(table, card_ids, target_uid, face_up=True, position='above'):
+def stack_cards(table, card_ids, target_uid, position='above'):
     if not isinstance(card_ids, list) or not card_ids:
         return False, '重ねるカードが選択されていません。'
     if position not in ('below', 'above'):
@@ -432,13 +430,16 @@ def stack_cards(table, card_ids, target_uid, face_up=True, position='above'):
     target_location = locate_card(table, target_uid)
     if not target_location:
         return False, '重ねる対象のカードが見つかりません。'
+    if target_location[1] not in ('battle', 'shields'):
+        return False, '重ねる対象はバトルゾーンまたはシールドゾーンのカードだけです。'
     target = target_location[3]
     moving = []
-    for uid in card_ids:
-        located = locate_card(table, uid)
+    for item in selected_items(table, card_ids):
+        located = locate_card(table, item['uid'])
         if not located:
             continue
-        item = located[3]
+        if located[0] != target_location[0]:
+            return False, '同じプレイヤーのカード同士だけ重ねられます。'
         if item is target or item in moving:
             continue
         # 対象カード自身を含む重なり全体を、その中へ重ねることは禁止する。
@@ -449,11 +450,9 @@ def stack_cards(table, card_ids, target_uid, face_up=True, position='above'):
         return False, '重ねるカードが見つかりません。'
 
     for item in moving:
-        located = locate_card(table, item['uid'])
-        if located:
-            located[4].pop(located[2])
-        item['face_up'] = bool(face_up)
-        item['tapped'] = False
+        if not detach_item(table, item):
+            return False, '重ねるカードが見つかりません。'
+        # 重ねる前の表裏・タップ状態をそのまま引き継ぐ。
     stack = stack_parts(target)
     stack[position].extend(moving)
     return True, ''
@@ -467,6 +466,42 @@ def stack_descendants(item):
         for child in stack.get(side, []):
             yield child
             yield from stack_descendants(child)
+
+
+def selected_items(table, card_ids):
+    """選択された親カードと、その内部カードの二重指定を整理する。"""
+    if not isinstance(card_ids, list):
+        return []
+    candidates = []
+    for uid in card_ids:
+        located = locate_card(table, uid)
+        if located and located[3] not in candidates:
+            candidates.append(located[3])
+    return [
+        item for item in candidates
+        if not any(item is not other and any(child is item for child in stack_descendants(other))
+                   for other in candidates)
+    ]
+
+
+def detach_item(table, item):
+    located = locate_card(table, item['uid'])
+    if not located:
+        return False
+    located[4].pop(located[2])
+    return True
+
+
+def flattened_stack_items(items):
+    """重なりを解除し、下側から上側の順で個別カードに展開する。"""
+    for item in items:
+        stack = item.get('stack')
+        if isinstance(stack, dict):
+            yield from flattened_stack_items(stack.get('below', []))
+        item['stack'] = {'below': [], 'above': []}
+        yield item
+        if isinstance(stack, dict):
+            yield from flattened_stack_items(stack.get('above', []))
 
 
 def apply_command(table, command, body):
@@ -511,7 +546,6 @@ def apply_command(table, command, body):
             table,
             body.get('card_ids', []),
             body.get('target_id'),
-            body.get('face_up', True),
             body.get('position', 'above'),
         )
         if ok:
@@ -576,6 +610,7 @@ class SimulatorHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header('Content-Type', mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
         self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'no-cache')
         self.end_headers()
         self.wfile.write(data)
 

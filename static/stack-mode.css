@@ -1,0 +1,12 @@
+.stack-mode-bar { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:8px 14px; border:2px solid #f3c86c; background:#283122; color:#fff5d5; }
+.stack-mode-copy { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px; }
+.stack-mode-copy strong { color:#f3c86c; white-space:nowrap; }
+.stack-mode-controls { display:flex; flex-wrap:wrap; gap:6px; }
+.stack-mode-controls button { padding:5px 10px; border:1px solid #8c966e; border-radius:6px; background:#17232d; color:#fff5d5; cursor:pointer; font:inherit; font-size:12px; }
+.stack-mode-controls button[aria-pressed="true"] { background:#f3c86c; border-color:#f3c86c; color:#17232d; font-weight:700; }
+.stack-mode-controls button:disabled { opacity:.5; cursor:wait; }
+#field.stack-selecting .table-card { cursor:not-allowed; }
+#field.stack-selecting .table-card.stack-target { outline:3px solid #70e4c0; outline-offset:-3px; cursor:crosshair; }
+#field.stack-selecting .table-card.stack-target:hover { outline-color:#f3c86c; }
+#field.stack-selecting .table-card.stack-source { outline:3px dashed #f3c86c; outline-offset:-3px; }
+#field.stack-selecting .stack-target-zone { border-color:#70e4c0; }
