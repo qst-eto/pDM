@@ -17,17 +17,19 @@ const state = {
   displaySettings: {
     cardScale: 1.1,
     cardHeightPercent: 100,
-    battleCardWidth: 0.56,
     labelPosition: 'corner',
     backStyle: 'dummy',
     selfBattleSize: 250,
     opponentBattleSize: 220,
     selfLowerSize: 180,
     opponentLowerSize: 125,
+    selfFieldSize: 100,
+    opponentFieldSize: 100,
   },
 };
 
 const SPECIAL_ZONES = ['extra', 'gachi', 'abyss'];
+const CARD_ASPECT_RATIO = 650 / 909;
 const EXPANDABLE_ZONES = new Set(['mana', 'graveyard', 'extra', 'abyss']);
 const INSPECTABLE_ZONES = new Set(['mana', 'graveyard', 'extra', 'gachi', 'abyss']);
 const AUTO_INSPECT_ZONES = new Set(['graveyard', 'extra', 'gachi', 'abyss']);
@@ -330,7 +332,9 @@ function syncSpecialZoneVisibility() {
 
 function updateSpecialZoneLayout() {
   $$('.special-zones-above').forEach((group) => {
-    group.classList.toggle('all-hidden', !group.querySelector('.zone:not(.zone-hidden)'));
+    const visibleCount = group.querySelectorAll('.zone:not(.zone-hidden)').length;
+    group.classList.toggle('all-hidden', !visibleCount);
+    setLayoutProperty(group, '--visible-special-count', String(Math.max(1, visibleCount)));
   });
 }
 
@@ -369,6 +373,10 @@ function stackDetailItems(item) {
   const stack = stackParts(item);
   const flatten = (items) => items.flatMap((child) => [...flatten(stackParts(child).below), child, ...flatten(stackParts(child).above)]);
   return [...flatten(stack.below), item, ...flatten(stack.above)];
+}
+
+function actionCardIds(item) {
+  return item && stackCount(item) ? stackDetailItems(item).map((child) => child.uid) : [item?.uid];
 }
 
 function compactStackMarkup(items, playerIndex, zone) {
@@ -433,16 +441,11 @@ function renderTable() {
   [0, 1].forEach(renderShields);
   updateSpecialZoneLayout();
   $('#selection-count').textContent = `${state.selected.size}枚選択中`;
-  $('#field-message').textContent = table.active_player === 0 ? '右クリックで操作 / ドラッグで移動 / クリックでゾーン展開 / ホイールでタップ' : '相手の操作を待っています';
-  $('#log-strip').textContent = table.log.length ? table.log[table.log.length - 1] : '';
   bindCardEvents();
-  renderLog();
-  fitZoneCards();
+  fitGameField();
   updateStackModeUI();
   syncHandWindow();
 }
-
-function renderLog() { $('#battle-log'); }
 
 function selectCard(uid, additive = false) {
   state.expandedZones.clear();
@@ -598,8 +601,9 @@ function showMenu(event, uid, playerIndex = 0, zone = '') {
   if (!state.selected.has(uid)) selectCard(uid);
   const node = $('#context-menu');
   const inspectButton = INSPECTABLE_ZONES.has(zone) ? '<button data-menu-command="inspect-zone">内容を見る</button><div class="menu-separator"></div>' : '';
-  node.innerHTML = `${inspectButton}<button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button><button data-menu-command="move" data-zone="extra">超次元へ</button><button data-menu-command="move" data-zone="gachi">ガチャレンジへ</button><button data-menu-command="move" data-zone="abyss">深淵へ</button><div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
+  node.innerHTML = `${inspectButton}<button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
   positionContextMenu(node, event.clientX, event.clientY);
+  bindSpecialZoneMenu(node, () => positionContextMenu(node, event.clientX, event.clientY));
   node.querySelectorAll('[data-menu-command]').forEach((button) => button.addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
     const command = button.dataset.menuCommand;
@@ -643,7 +647,12 @@ function bindCardEvents() {
       selectCard(node.dataset.uid, event.ctrlKey || event.metaKey);
     });
     node.addEventListener('contextmenu', (event) => { event.preventDefault(); showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone); });
-    node.addEventListener('wheel', (event) => { event.preventDefault(); sendCommand({ command: event.deltaY < 0 ? 'tap' : 'tap', card_ids: [node.dataset.uid], value: event.deltaY < 0 }); }, { passive: false });
+    node.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const player = Number(node.dataset.player);
+      const item = findTableItem(player, node.dataset.zone, node.dataset.uid);
+      sendCommand({ command: 'tap', card_ids: actionCardIds(item), value: event.deltaY < 0 });
+    }, { passive: false });
     node.addEventListener('pointerenter', () => { const item = findTableItem(Number(node.dataset.player), node.dataset.zone, node.dataset.uid); showPreview(item && stackVisualItem(item).card); });
     node.addEventListener('pointerleave', hidePreview);
     node.addEventListener('dragstart', (event) => { event.dataTransfer.setData('text/plain', node.dataset.uid); event.dataTransfer.effectAllowed = 'move'; });
@@ -661,7 +670,9 @@ function bindCardEvents() {
     node.addEventListener('contextmenu', (event) => { event.preventDefault(); showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone); });
     node.addEventListener('wheel', (event) => {
       event.preventDefault();
-      sendCommand({ command: 'tap', card_ids: [node.dataset.uid], value: event.deltaY < 0 });
+      const player = Number(node.dataset.player);
+      const item = findTableItem(player, 'mana', node.dataset.uid);
+      sendCommand({ command: 'tap', card_ids: actionCardIds(item), value: event.deltaY < 0 });
     }, { passive: false });
   });
 }
@@ -743,7 +754,8 @@ function applyDisplaySettings() {
   const settings = state.displaySettings;
   settings.cardScale = Math.min(1.25, Math.max(0.9, Number(settings.cardScale) || 1.1));
   settings.cardHeightPercent = Math.min(100, Math.max(60, Number(settings.cardHeightPercent) || 100));
-  settings.battleCardWidth = Math.min(0.8, Math.max(0.45, Number(settings.battleCardWidth) || 0.56));
+  settings.selfFieldSize = Math.min(140, Math.max(60, Number(settings.selfFieldSize) || 100));
+  settings.opponentFieldSize = Math.min(140, Math.max(60, Number(settings.opponentFieldSize) || 100));
   settings.labelPosition = ['corner', 'top'].includes(settings.labelPosition) ? settings.labelPosition : 'corner';
   settings.backStyle = ['dummy', 'pattern'].includes(settings.backStyle) ? settings.backStyle : 'dummy';
   settings.selfBattleSize = Math.min(360, Math.max(160, Number(settings.selfBattleSize) || 250));
@@ -751,19 +763,22 @@ function applyDisplaySettings() {
   settings.selfLowerSize = Math.min(260, Math.max(120, Number(settings.selfLowerSize) || 180));
   settings.opponentLowerSize = Math.min(200, Math.max(80, Number(settings.opponentLowerSize) || 125));
   document.documentElement.style.setProperty('--card-scale', String(settings.cardScale));
-  document.documentElement.style.setProperty('--battle-card-width-ratio', String(settings.battleCardWidth));
   document.documentElement.style.setProperty('--self-battle-row', `${settings.selfBattleSize}fr`);
   document.documentElement.style.setProperty('--opponent-battle-row', `${settings.opponentBattleSize}fr`);
   document.documentElement.style.setProperty('--self-lower-row', `${settings.selfLowerSize}fr`);
   document.documentElement.style.setProperty('--opponent-lower-row', `${settings.opponentLowerSize}fr`);
+  document.documentElement.style.setProperty('--self-area-row', `${settings.selfFieldSize}fr`);
+  document.documentElement.style.setProperty('--opponent-area-row', `${settings.opponentFieldSize}fr`);
   document.body.dataset.labelPosition = settings.labelPosition;
   document.body.dataset.backStyle = settings.backStyle;
   $('#card-scale').value = String(settings.cardScale);
   $('#card-scale-value').textContent = `${Math.round(settings.cardScale * 100)}%`;
   $('#card-height-percent').value = String(settings.cardHeightPercent);
   $('#card-height-percent-value').textContent = `${Math.round(settings.cardHeightPercent)}%`;
-  $('#battle-card-width').value = String(settings.battleCardWidth);
-  $('#battle-card-width-value').textContent = `${Math.round(settings.battleCardWidth * 100)}%`;
+  $('#self-field-size').value = String(settings.selfFieldSize);
+  $('#self-field-size-value').textContent = `${Math.round(settings.selfFieldSize)}%`;
+  $('#opponent-field-size').value = String(settings.opponentFieldSize);
+  $('#opponent-field-size-value').textContent = `${Math.round(settings.opponentFieldSize)}%`;
   $('#self-battle-size').value = String(settings.selfBattleSize);
   const selfTotal = settings.selfBattleSize + settings.selfLowerSize;
   const opponentTotal = settings.opponentBattleSize + settings.opponentLowerSize;
@@ -783,6 +798,8 @@ function loadDisplaySettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(DISPLAY_SETTINGS_KEY) || '{}');
     state.displaySettings = { ...state.displaySettings, ...saved };
+    // 旧版の細いカード枠は引き継がず、実画像の縦横比を使用する。
+    delete state.displaySettings.battleCardWidth;
   } catch (error) {
     // 壊れた保存値は初期値で表示する。
   }
@@ -795,36 +812,25 @@ function saveDisplaySettings() {
 
 function fitGameField() {
   if ($('#game-screen').classList.contains('hidden')) return;
-  const width = Math.max(320, window.innerWidth - 24);
-  const height = Math.max(260, window.innerHeight - 105);
-  const designScale = state.displaySettings.cardScale / 1.1;
-  const fit = Math.min(1, width / (1120 * designScale), height / (720 * designScale));
-  document.documentElement.style.setProperty('--field-fit', Math.max(0.55, fit).toFixed(3));
-  const battleHeights = $$('.self-battle-zone, .opponent-battle-zone').map((node) => node.clientHeight).filter(Boolean);
-  const battleHeight = battleHeights.length ? Math.max(...battleHeights) : height * 0.25;
-  const cardHeight = Math.max(54, Math.min(170, Math.round(battleHeight * 0.9 * designScale)));
-  document.documentElement.style.setProperty('--card-art-height', `${cardHeight}px`);
-  const selfBattleHeight = $('.self-battle-zone')?.clientHeight || battleHeight;
-  const opponentBattleHeight = $('.opponent-battle-zone')?.clientHeight || battleHeight;
-  document.documentElement.style.setProperty('--self-battle-art-height', `${Math.max(48, Math.round(selfBattleHeight * 0.9))}px`);
-  document.documentElement.style.setProperty('--opponent-battle-art-height', `${Math.max(48, Math.round(opponentBattleHeight * 0.9))}px`);
-  const selfShieldHeight = $('.self-primary-zones .shield-zone')?.clientHeight || cardHeight;
-  const opponentShieldHeight = $('.opponent-primary-zones .shield-zone')?.clientHeight || cardHeight;
-  document.documentElement.style.setProperty('--self-shield-art-height', `${Math.max(36, Math.round(selfShieldHeight * 0.9))}px`);
-  document.documentElement.style.setProperty('--opponent-shield-art-height', `${Math.max(36, Math.round(opponentShieldHeight * 0.9))}px`);
-  const selfHandHeight = $('.self-hand-zone')?.clientHeight || cardHeight;
-  const opponentHandHeight = $('.opponent-hand-zone')?.clientHeight || cardHeight;
-  const selfPrimaryHeight = $('.self-primary-zones')?.clientHeight || cardHeight;
-  const opponentPrimaryHeight = $('.opponent-primary-zones')?.clientHeight || cardHeight;
-  document.documentElement.style.setProperty('--self-hand-art-height', `${Math.max(36, Math.round(selfHandHeight * 0.9))}px`);
-  document.documentElement.style.setProperty('--opponent-hand-art-height', `${Math.max(36, Math.round(opponentHandHeight * 0.9))}px`);
-  document.documentElement.style.setProperty('--self-primary-art-height', `${Math.max(32, Math.round(selfPrimaryHeight * 0.9))}px`);
-  document.documentElement.style.setProperty('--opponent-primary-art-height', `${Math.max(32, Math.round(opponentPrimaryHeight * 0.9))}px`);
+  // 列幅はゾーンの高さだけから求める。カード枚数やカードサイズを参照しない。
+  $$('.self-primary-zones, .opponent-primary-zones').forEach((row) => {
+    const height = row.getBoundingClientRect().height;
+    if (!height) return;
+    const pileWidth = Math.ceil(Math.max(0, height - 4) * CARD_ASPECT_RATIO + 4);
+    const specialCount = row.querySelectorAll('.special-zones-above .zone:not(.zone-hidden)').length;
+    const specialWidth = Math.ceil(Math.max(0, (height - 5) / 2 - 4) * CARD_ASPECT_RATIO + 4);
+    setLayoutProperty(row, '--pile-zone-width', `${pileWidth}px`);
+    setLayoutProperty(row, '--grave-zone-width', `${Math.max(pileWidth, specialCount * specialWidth + Math.max(0, specialCount - 1) * 4)}px`);
+  });
   fitZoneCards();
 }
 
+function setLayoutProperty(node, key, value) {
+  if (node.style.getPropertyValue(key) !== value) node.style.setProperty(key, value);
+}
+
 function fitZoneCards() {
-  const heightRatio = state.displaySettings.cardHeightPercent / 100;
+  const heightRatio = Math.min(1, state.displaySettings.cardHeightPercent / 100 * state.displaySettings.cardScale / 1.1);
   $$('.field-board .zone').forEach((zoneNode) => {
     const content = zoneNode.querySelector('.zone-content');
     const cards = Array.from(content?.querySelectorAll('.table-card') || []);
@@ -833,24 +839,45 @@ function fitZoneCards() {
     const style = window.getComputedStyle(content);
     const horizontalPadding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
     const verticalPadding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-    const gap = parseFloat(style.gap) || 4;
-    const availableWidth = Math.max(20, content.clientWidth - horizontalPadding - 4);
-    const availableHeight = Math.max(20, content.clientHeight - verticalPadding - 6);
+    const columnGap = parseFloat(style.columnGap) || 0;
+    const rowGap = parseFloat(style.rowGap) || 0;
+    const bounds = content.getBoundingClientRect();
+    const availableWidth = bounds.width - horizontalPadding;
+    const availableHeight = bounds.height - verticalPadding;
+    if (availableWidth <= 0 || availableHeight <= 0) return;
     const canWrap = ['hand', 'shields', 'battle'].includes(zoneNode.dataset.zone) || zoneNode.classList.contains('expanded-zone');
     const maxRows = canWrap && cards.length > 1 ? 2 : 1;
-    let bestHeight = 18;
-
-    for (let rows = 1; rows <= maxRows; rows += 1) {
-      const columns = Math.ceil(cards.length / rows);
-      const heightLimit = (availableHeight - gap * (rows - 1)) / rows;
-      const ratio = zoneNode.matches('.self-battle-zone, .opponent-battle-zone')
-        ? (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--battle-card-width-ratio')) || 0.56)
-        : 0.56;
-      const widthLimit = (availableWidth - gap * (columns - 1)) / columns / ratio;
-      bestHeight = Math.max(bestHeight, Math.min(heightLimit * heightRatio, widthLimit));
+    const sizes = cards.map((card) => card.classList.contains('tapped')
+      ? { width: 1, height: CARD_ASPECT_RATIO }
+      : { width: CARD_ASPECT_RATIO, height: 1 });
+    // CSSの折り返しと同じ順序で、タップ後の占有幅・高さも含めて収まりを調べる。
+    const fits = (height) => {
+      let rows = 1, width = 0, rowHeight = 0, totalHeight = 0;
+      for (const size of sizes) {
+        const cardWidth = height * size.width;
+        if (cardWidth > availableWidth) return false;
+        const gap = width ? columnGap : 0;
+        if (width && width + gap + cardWidth > availableWidth) {
+          totalHeight += rowHeight + rowGap;
+          rows += 1;
+          width = 0;
+          rowHeight = 0;
+        }
+        width += (width ? columnGap : 0) + cardWidth;
+        rowHeight = Math.max(rowHeight, height * size.height);
+      }
+      return rows <= maxRows && totalHeight + rowHeight <= availableHeight;
+    };
+    let low = 0;
+    let high = availableHeight * heightRatio / Math.max(...sizes.map((size) => size.height));
+    for (let step = 0; step < 24; step += 1) {
+      const candidate = (low + high) / 2;
+      if (fits(candidate)) low = candidate; else high = candidate;
     }
-
-    zoneNode.style.setProperty('--zone-card-height', `${Math.max(18, Math.floor(bestHeight))}px`);
+    // 少数ピクセルの丸めで余分な折り返しが発生しないよう、わずかに切り下げる。
+    const height = Math.max(0, Math.floor((low - 0.1) * 100) / 100);
+    setLayoutProperty(zoneNode, '--zone-card-height', `${height}px`);
+    setLayoutProperty(zoneNode, '--zone-card-width', `${height * CARD_ASPECT_RATIO}px`);
   });
 }
 
@@ -956,8 +983,7 @@ $('#clear-selection').addEventListener('click', () => { state.selected.clear(); 
 
 $('#card-scale').addEventListener('input', (event) => { state.displaySettings.cardScale = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 $('#card-height-percent').addEventListener('input', (event) => { state.displaySettings.cardHeightPercent = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
-$('#battle-card-width').addEventListener('input', (event) => { state.displaySettings.battleCardWidth = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
-[['self-battle-size', 'selfBattleSize'], ['opponent-battle-size', 'opponentBattleSize'], ['self-lower-size', 'selfLowerSize'], ['opponent-lower-size', 'opponentLowerSize']].forEach(([id, key]) => {
+[['self-field-size', 'selfFieldSize'], ['opponent-field-size', 'opponentFieldSize'], ['self-battle-size', 'selfBattleSize'], ['opponent-battle-size', 'opponentBattleSize'], ['self-lower-size', 'selfLowerSize'], ['opponent-lower-size', 'opponentLowerSize']].forEach(([id, key]) => {
   $(`#${id}`).addEventListener('input', (event) => { state.displaySettings[key] = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 });
 $('#label-position').addEventListener('change', (event) => { state.displaySettings.labelPosition = event.target.value; applyDisplaySettings(); saveDisplaySettings(); });
@@ -1029,7 +1055,10 @@ $('#field').addEventListener('click', (event) => {
   event.stopImmediatePropagation();
 }, { capture: true, passive: false }));
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') endStackMode();
+  if (event.key === 'Escape') {
+    $('#context-menu').classList.add('hidden');
+    endStackMode();
+  }
 });
 $('#field').addEventListener('pointerdown', beginRangeSelection);
 $('#field').addEventListener('pointermove', moveRangeSelection);
@@ -1037,6 +1066,12 @@ $('#field').addEventListener('pointerup', endRangeSelection);
 $('#field').addEventListener('pointercancel', endRangeSelection);
 window.addEventListener('resize', fitGameField);
 document.addEventListener('fullscreenchange', fitGameField);
+let fieldFitFrame = 0;
+const fieldSizeObserver = new ResizeObserver(() => {
+  if (fieldFitFrame) return;
+  fieldFitFrame = requestAnimationFrame(() => { fieldFitFrame = 0; fitGameField(); });
+});
+$$('.field-board .zone').forEach((zone) => fieldSizeObserver.observe(zone));
 loadDisplaySettings();
 loadMeta();
 loadCards();

@@ -89,9 +89,6 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .aux-zone .zone-content { min-height:24px; }
 .zone-hidden { display:none !important; }
 .self-zones { margin-top:7px; }
-.field-center { display:flex; flex:0 0 25px; align-items:center; gap:9px; color:#97b6b8; font-size:10px; text-align:center; }
-.center-rule { height:1px; flex:1; background:rgba(115,180,170,.32); }
-.log-strip { max-width:650px; overflow:hidden; color:#b6cdca; font-size:9px; white-space:nowrap; text-overflow:ellipsis; }
 .wide-hand .zone-content { flex-wrap:nowrap; }
 .card-back { position:relative; width:31px; height:45px; flex:0 0 auto; border:1px solid #8fa7bd; border-radius:5px; background:repeating-linear-gradient(45deg,#233c59 0 4px,#395778 4px 8px); }
 .table-card { position:relative; flex:0 0 57px; border:1px solid #617c8d; border-radius:6px; background:#15202a; padding:0; overflow:visible; text-align:left; transition:transform .12s, border-color .12s; }
@@ -194,7 +191,6 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .self-mana-zone .zone-content { min-height:39px; }
 .battle-label { flex:0 0 20px; min-height:20px; padding:2px 4px 4px; }
 .battle-zone .zone-content, .opponent-battle-zone .zone-content, .self-battle-zone .zone-content { align-items:flex-start; }
-.field-center { flex:0 0 25px; }
 .opponent-area .battle-label { color:#adc2c3; }
 .opponent-area .table-card { flex-basis:48px; }
 .opponent-area .table-card .card-art { height:64px; min-height:64px; }
@@ -206,8 +202,8 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .compact-zone.expanded-zone .mana-orb { width:14px; height:14px; }
 
 /* 表示設定でカードを拡大しても、ゾーン名がカードの縦幅を奪わないようにする。 */
-:root { --card-scale:1.1; --field-fit:1; --battle-card-width-ratio:.56; --card-art-height:calc(88px * var(--card-scale)); --self-battle-art-height:calc(88px * var(--card-scale)); --opponent-battle-art-height:calc(88px * var(--card-scale)); --self-shield-art-height:calc(70px * var(--card-scale)); --opponent-shield-art-height:calc(70px * var(--card-scale)); --self-hand-art-height:calc(70px * var(--card-scale)); --opponent-hand-art-height:calc(70px * var(--card-scale)); --self-primary-art-height:calc(60px * var(--card-scale)); --opponent-primary-art-height:calc(60px * var(--card-scale)); }
-.field { position:relative; overflow:hidden; zoom:var(--field-fit); }
+:root { --card-scale:1.1; }
+.field { position:relative; overflow:hidden; }
 .zone { padding:3px; }
 .zone-head { position:absolute; right:4px; bottom:3px; z-index:8; width:max-content; max-width:calc(100% - 8px); height:auto; border-radius:4px; background:rgba(10,20,27,.76); padding:1px 3px; pointer-events:none; font-size:9px; line-height:1.25; }
 .zone-head button { pointer-events:auto; }
@@ -216,24 +212,14 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .battle-label { position:relative; z-index:8; flex:0 0 0; height:0; min-height:0; padding:0; pointer-events:none; }
 .battle-label span, .battle-label em { position:absolute; top:3px; left:7px; border-radius:4px; background:rgba(10,20,27,.72); padding:1px 4px; font-size:9px; line-height:1.25; }
 .battle-label em { left:auto; right:7px; }
-.table-card { flex-basis:calc(var(--card-art-height) * .56); z-index:4; transition:transform .16s, border-color .12s, box-shadow .12s; }
-.table-card .card-art { height:var(--card-art-height); min-height:var(--card-art-height); }
 .table-card .card-name { height:calc(24px * var(--card-scale)); font-size:calc(8px * var(--card-scale)); }
 .table-card .card-art, .table-card .card-name { position:relative; z-index:6; }
 .table-card .card-name { display:none !important; background:#15202a; }
 .table-card:hover { transform:none; }
 .table-card.tapped:hover { transform:rotate(90deg); }
-.compact-zone .table-card { flex-basis:calc(var(--card-art-height) * .34); }
-.compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .62); min-height:calc(var(--card-art-height) * .62); }
-.compact-zone .card-back { width:calc(var(--card-art-height) * .42); height:calc(var(--card-art-height) * .62); }
 .compact-zone .stack-slot { flex-basis:calc(36px * var(--card-scale)); height:calc(50px * var(--card-scale)); }
 .stack-count { font-size:calc(8px * var(--card-scale)); }
-.self-hand-zone .table-card { flex-basis:calc(var(--card-art-height) * .5); }
-.self-hand-zone .table-card .card-art { height:calc(var(--card-art-height) * .68); min-height:calc(var(--card-art-height) * .68); }
-.opponent-area .table-card { flex-basis:calc(var(--card-art-height) * .44); }
-.opponent-area .table-card .card-art { height:calc(var(--card-art-height) * .56); min-height:calc(var(--card-art-height) * .56); }
 .self-primary-zones .shield-zone .zone-content, .opponent-primary-zones .shield-zone .zone-content { align-items:center; justify-content:center; }
-.self-primary-zones .shield-zone .table-card, .opponent-primary-zones .shield-zone .table-card { flex-basis:calc(var(--card-art-height) * .34); }
 .zone-content, .grave-zone .zone-content, .shield-zone .zone-content { justify-content:flex-end; }
 .mana-zone .zone-content { justify-content:flex-end; }
 .mana-orb { width:calc(15px * var(--card-scale)); height:calc(15px * var(--card-scale)); cursor:pointer; }
@@ -250,42 +236,17 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 /* 相手側は自分側を上下反転した構造にする。 */
 .opponent-area, .self-area { flex:1; }
 .opponent-lower-zones { display:flex; min-height:0; flex:0 0 auto; flex-direction:column; gap:7px; }
-.opponent-mana-zone { min-height:calc(var(--card-art-height) * .34 + 8px); }
-.opponent-hand-zone { min-height:calc(var(--card-art-height) * .46 + 12px); }
 .opponent-hand-zone .zone-content { flex-wrap:wrap; align-content:center; }
 .opponent-primary-zones { display:grid; grid-template-columns:minmax(240px,2fr) minmax(82px,.8fr) minmax(150px,1.15fr); gap:7px; min-height:66px; }
-.opponent-primary-zones > .zone { min-height:calc(var(--card-art-height) * .32 + 8px); }
 .opponent-primary-zones .shield-zone .zone-content { flex-wrap:nowrap; overflow:visible; }
 .opponent-grave-column { flex-direction:column; }
 .opponent-special-zones { order:2; }
 .opponent-special-zones .zone-content { min-height:20px; max-height:25px; }
 .opponent-battle-zone { min-height:0; flex:1; }
-.opponent-hand-zone .table-card { flex-basis:calc(var(--card-art-height) * .38); }
-.opponent-hand-zone .table-card .card-art { height:calc(var(--card-art-height) * .46); min-height:calc(var(--card-art-height) * .46); }
-.opponent-lower-zones .compact-zone .table-card { flex-basis:calc(var(--card-art-height) * .25); }
-.opponent-lower-zones .compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .34); min-height:calc(var(--card-art-height) * .34); }
 .compact-zone .zone-content { max-height:none; overflow:visible; }
-.self-primary-zones > .zone { min-height:calc(var(--card-art-height) * .5 + 14px); }
-.self-hand-zone { min-height:calc(var(--card-art-height) * .68 + 20px); }
-.self-mana-zone { min-height:calc(var(--card-art-height) * .5 + 14px); }
-.special-zones-above .compact-zone { min-height:calc(var(--card-art-height) * .45 + 18px); }
-.special-zones-above .compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .45); min-height:calc(var(--card-art-height) * .45); }
-.special-zones-above .compact-zone .card-back { width:calc(var(--card-art-height) * .31); height:calc(var(--card-art-height) * .45); }
-.self-hand-zone .card-back { width:calc(var(--card-art-height) * .5); height:calc(var(--card-art-height) * .68); }
-.opponent-hand-zone .card-back { width:calc(var(--card-art-height) * .38); height:calc(var(--card-art-height) * .46); }
-.opponent-lower-zones .compact-zone .card-back { width:calc(var(--card-art-height) * .25); height:calc(var(--card-art-height) * .34); }
 .self-hand-zone .zone-content, .opponent-hand-zone .zone-content { flex-wrap:wrap; align-content:center; overflow:visible; }
 .self-primary-zones .shield-zone .zone-content, .opponent-primary-zones .shield-zone .zone-content { flex-wrap:wrap; }
 .expanded-zone .zone-content { overflow:auto; }
-
-/* バトルゾーンはゾーン高さの約90%を使い、裏向きカードも同じ大きさにする。 */
-.self-battle-zone .table-card { flex-basis:calc(var(--self-battle-art-height) * .56); }
-.self-battle-zone .table-card .card-art { height:var(--self-battle-art-height); min-height:var(--self-battle-art-height); }
-.self-battle-zone .card-back { width:calc(var(--self-battle-art-height) * .56); height:var(--self-battle-art-height); }
-.opponent-battle-zone .table-card { flex-basis:calc(var(--opponent-battle-art-height) * .56); }
-.opponent-battle-zone .table-card .card-art { height:var(--opponent-battle-art-height); min-height:var(--opponent-battle-art-height); }
-.opponent-battle-zone .card-back { width:calc(var(--opponent-battle-art-height) * .56); height:var(--opponent-battle-art-height); }
-.self-battle-zone .card-image, .opponent-battle-zone .card-image { object-fit:contain; }
 
 /* 左側をカード確認専用、右側を実際の対戦フィールドとして分離する。 */
 .field {
@@ -327,12 +288,13 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
   text-align:center;
 }
 .card-viewer .card-art {
-  width:auto;
-  height:min(62vh,calc(100% - 20px));
+  width:100%;
+  height:auto;
+  max-height:62vh;
   max-width:100%;
   min-height:0;
   flex:0 0 auto;
-  aspect-ratio:.56;
+  aspect-ratio:650 / 909;
   border-radius:8px;
 }
 .card-viewer .card-image { object-fit:contain; }
@@ -360,32 +322,17 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .field-board .shield-zone .zone-content { justify-content:center; }
 .field-board .mana-zone .zone-content { justify-content:flex-end; }
 
-/* 山札と墓地はカード1枚分の横幅に固定し、残りをシールドへ渡す。 */
-.self-primary-zones,
-.opponent-primary-zones {
-  grid-template-columns:minmax(0,1fr) max(62px,calc(var(--card-art-height) * .48)) max(72px,calc(var(--card-art-height) * .62));
-}
-
 /* 自分のバトルゾーンを広げ、相手はバトルゾーン以外を圧縮する。 */
 .opponent-area { flex:.82; }
 .self-area { flex:1.32; }
 .self-battle-zone { flex:1.45; }
 .opponent-battle-zone { flex:1.25; }
 .opponent-lower-zones { gap:3px; }
-.opponent-mana-zone { min-height:calc(var(--card-art-height) * .24 + 5px); }
-.opponent-hand-zone { min-height:calc(var(--card-art-height) * .32 + 7px); }
-.opponent-primary-zones > .zone { min-height:calc(var(--card-art-height) * .23 + 5px); }
-.opponent-special-zones .compact-zone { min-height:calc(var(--card-art-height) * .22 + 5px); }
-.opponent-lower-zones .compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .28); min-height:calc(var(--card-art-height) * .28); }
-.opponent-lower-zones .compact-zone .card-back { width:calc(var(--card-art-height) * .21); height:calc(var(--card-art-height) * .28); }
 
 /* 山札の一番上は固定29pxではなく、実際の裏向きカード幅で中央表示する。 */
 .field-board .deck-zone .zone-content { justify-content:center; align-items:center; }
 .field-board .deck-zone .stack-slot {
   display:flex;
-  width:calc(var(--card-art-height) * .48);
-  height:calc(var(--card-art-height) * .62);
-  flex:0 0 calc(var(--card-art-height) * .48);
   align-items:center;
   justify-content:center;
 }
@@ -404,22 +351,6 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .field-board > .self-area { flex:1.4; }
 .field-board > .opponent-area .opponent-battle-zone { flex:3.2; min-height:160px; }
 .field-board > .self-area .self-battle-zone { flex:3.4; min-height:185px; }
-.self-primary-zones > .zone { min-height:calc(var(--card-art-height) * .34 + 10px); }
-.self-primary-zones .compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .34); min-height:calc(var(--card-art-height) * .34); }
-.self-primary-zones .compact-zone .card-back { width:calc(var(--card-art-height) * .24); height:calc(var(--card-art-height) * .34); }
-.self-primary-zones .special-zones-above .compact-zone { min-height:calc(var(--card-art-height) * .28 + 6px); }
-.self-primary-zones .special-zones-above .compact-zone .table-card .card-art { height:calc(var(--card-art-height) * .28); min-height:calc(var(--card-art-height) * .28); }
-.self-primary-zones .special-zones-above .compact-zone .card-back { width:calc(var(--card-art-height) * .2); height:calc(var(--card-art-height) * .28); }
-.self-primary-zones .shield-zone .table-card { flex-basis:calc(var(--self-shield-art-height) * .56); }
-.self-primary-zones .shield-zone .table-card .card-art { height:var(--self-shield-art-height); min-height:var(--self-shield-art-height); }
-.self-primary-zones .shield-zone .card-back { width:calc(var(--self-shield-art-height) * .56); height:var(--self-shield-art-height); }
-.opponent-primary-zones .shield-zone .table-card { flex-basis:calc(var(--opponent-shield-art-height) * .56); }
-.opponent-primary-zones .shield-zone .table-card .card-art { height:var(--opponent-shield-art-height); min-height:var(--opponent-shield-art-height); }
-.opponent-primary-zones .shield-zone .card-back { width:calc(var(--opponent-shield-art-height) * .56); height:var(--opponent-shield-art-height); }
-.self-hand-zone { min-height:calc(var(--card-art-height) * .46 + 14px); }
-.self-hand-zone .table-card .card-art { height:calc(var(--card-art-height) * .46); min-height:calc(var(--card-art-height) * .46); }
-.self-hand-zone .card-back { width:calc(var(--card-art-height) * .34); height:calc(var(--card-art-height) * .46); }
-.self-mana-zone { min-height:calc(var(--card-art-height) * .3 + 10px); }
 
 @media (max-width:1000px) {
   .game-screen { min-width:0; }
@@ -463,20 +394,6 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .opponent-lower-zones .zone-content,
 .self-lower-zones .zone-content { min-height:0; overflow:auto; }
 
-/* カード画像は固定された各ゾーンの高さから計算する。 */
-.self-hand-zone .table-card .card-art { height:var(--self-hand-art-height); min-height:var(--self-hand-art-height); }
-.self-hand-zone .card-back { height:var(--self-hand-art-height); width:calc(var(--self-hand-art-height) * .56); }
-.opponent-hand-zone .table-card .card-art { height:var(--opponent-hand-art-height); min-height:var(--opponent-hand-art-height); }
-.opponent-hand-zone .card-back { height:var(--opponent-hand-art-height); width:calc(var(--opponent-hand-art-height) * .56); }
-.self-primary-zones .compact-zone .table-card .card-art { height:var(--self-primary-art-height); min-height:var(--self-primary-art-height); }
-.self-primary-zones .compact-zone .card-back { height:var(--self-primary-art-height); width:calc(var(--self-primary-art-height) * .56); }
-.opponent-primary-zones .compact-zone .table-card .card-art { height:var(--opponent-primary-art-height); min-height:var(--opponent-primary-art-height); }
-.opponent-primary-zones .compact-zone .card-back { height:var(--opponent-primary-art-height); width:calc(var(--opponent-primary-art-height) * .56); }
-.self-primary-zones .special-zones-above .compact-zone .table-card .card-art,
-.self-primary-zones .special-zones-above .compact-zone .card-back,
-.opponent-primary-zones .special-zones-above .compact-zone .table-card .card-art,
-.opponent-primary-zones .special-zones-above .compact-zone .card-back { max-height:100%; }
-
 /* 画面上半分を相手、下半分を自分で埋め、各側の内部も比率で使い切る。 */
 :root {
   --self-battle-row:250fr;
@@ -486,7 +403,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 }
 .field-board {
   display:grid;
-  grid-template-rows:minmax(0,1fr) 25px minmax(0,1fr);
+  grid-template-rows:minmax(0,var(--opponent-area-row,100fr)) minmax(0,var(--self-area-row,100fr));
   gap:5px;
   overflow:hidden;
 }
@@ -524,8 +441,8 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 }
 
 /* 山札は左をカード、右を表示と操作に使う。 */
-.self-primary-zones { grid-template-columns:minmax(0,1fr) max(118px,calc(var(--self-primary-art-height) * .56 + 56px)) max(72px,calc(var(--self-primary-art-height) * .62)); }
-.opponent-primary-zones { grid-template-columns:minmax(0,1fr) max(118px,calc(var(--opponent-primary-art-height) * .56 + 56px)) max(72px,calc(var(--opponent-primary-art-height) * .62)); }
+.self-primary-zones,
+.opponent-primary-zones { grid-template-columns:minmax(0,1fr) calc(var(--pile-zone-width,60px) + 52px) var(--grave-zone-width,60px); }
 .field-board .deck-zone .zone-content {
   justify-content:center;
   padding-right:52px;
@@ -537,55 +454,70 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 }
 .deck-zone .zone-action { right:4px; bottom:4px; }
 
-/* 各ゾーンで算出した画像高を、カード本体と裏面・山札スタックへ統一適用する。 */
-.self-hand-zone .table-card { flex-basis:calc(var(--self-hand-art-height) * .56); }
-.opponent-hand-zone .table-card { flex-basis:calc(var(--opponent-hand-art-height) * .56); }
-.self-primary-zones .compact-zone .table-card { flex-basis:calc(var(--self-primary-art-height) * .56); }
-.opponent-primary-zones .compact-zone .table-card { flex-basis:calc(var(--opponent-primary-art-height) * .56); }
-.self-primary-zones .deck-zone .stack-slot {
-  width:calc(var(--self-primary-art-height) * .56);
-  height:var(--self-primary-art-height);
-  flex-basis:calc(var(--self-primary-art-height) * .56);
-}
-.opponent-primary-zones .deck-zone .stack-slot {
-  width:calc(var(--opponent-primary-art-height) * .56);
-  height:var(--opponent-primary-art-height);
-  flex-basis:calc(var(--opponent-primary-art-height) * .56);
-}
-.self-primary-zones .deck-zone .stack-slot .table-card,
-.opponent-primary-zones .deck-zone .stack-slot .table-card { width:100%; height:100%; flex-basis:100%; }
-
 .display-settings { width:300px; }
 .display-settings label { display:grid; grid-template-columns:minmax(92px,1fr) 120px 38px; }
 
-/* 通常表示はスクロールさせず、ゾーン内寸から計算したカード高で全体を見せる。 */
-.field-board .zone:not(.expanded-zone) .zone-content { overflow:hidden; }
-.field-board .zone .table-card {
-  width:calc(var(--zone-card-height,48px) * .56);
+/* 枠はグリッドが決め、カードはその内側1pxまで使う。内容から枠の高さを変えない。 */
+.field-board .zone { min-height:0; padding:0; }
+.field-board .zone > .zone-content {
+  position:absolute;
+  inset:1px;
+  width:auto;
+  height:auto;
+  min-height:0;
+  max-height:none;
+  padding:0;
+  overflow:hidden;
+  flex-wrap:wrap;
+  align-items:center;
+  align-content:center;
+  gap:4px;
+}
+.field-board .deck-zone > .zone-content { right:53px; padding:0; }
+.field-board .grave-column { display:grid; grid-template-rows:minmax(0,1fr); min-height:0; }
+.field-board .grave-column:has(.special-zones-above:not(.all-hidden)) { grid-template-rows:repeat(2,minmax(0,1fr)); }
+.field-board .special-zones-above { min-height:0; grid-template-rows:minmax(0,1fr); grid-template-columns:repeat(var(--visible-special-count,1),minmax(0,1fr)); }
+
+/* 650×909の表裏共通の枠。タップ時は枠自体を横長にして隣のカードと重ならないようにする。 */
+.field-board .zone .table-card,
+.field-board .zone .stack-slot {
+  width:var(--zone-card-width,34.32px);
   height:var(--zone-card-height,48px);
-  flex:0 0 calc(var(--zone-card-height,48px) * .56);
+  flex:0 0 var(--zone-card-width,34.32px);
   min-width:0;
   min-height:0;
+  margin:0;
+  border:0;
+  transform:none;
+  transition:border-color .12s, box-shadow .12s;
 }
-.field-board .self-battle-zone .table-card,
-.field-board .opponent-battle-zone .table-card {
-  width:calc(var(--zone-card-height,48px) * var(--battle-card-width-ratio));
-  flex-basis:calc(var(--zone-card-height,48px) * var(--battle-card-width-ratio));
+.field-board .zone .table-card.tapped,
+.field-board .zone .stack-slot:has(.table-card.tapped) {
+  width:var(--zone-card-height,48px);
+  height:var(--zone-card-width,34.32px);
+  flex-basis:var(--zone-card-height,48px);
 }
 .field-board .zone .table-card .card-art,
 .field-board .zone .table-card .card-back {
-  width:100%;
-  height:100%;
-  min-height:0;
-  max-height:100%;
-}
-.field-board .deck-zone .stack-slot {
-  width:calc(var(--zone-card-height,48px) * .56);
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:var(--zone-card-width,34.32px);
   height:var(--zone-card-height,48px);
-  flex:0 0 calc(var(--zone-card-height,48px) * .56);
+  min-height:0;
+  max-height:none;
+  transform:translate(-50%,-50%);
+  border-radius:3px;
 }
-.field-board .deck-zone .stack-slot .table-card { width:100%; height:100%; flex-basis:100%; }
-.field-board .deck-zone .stack-count { right:1px; bottom:1px; }
+.field-board .zone .table-card.tapped .card-art,
+.field-board .zone .table-card.tapped .card-back { transform:translate(-50%,-50%) rotate(90deg); }
+.field-board .zone .table-card.selected { box-shadow:inset 0 0 0 2px var(--gold); }
+.field-board .zone .table-card.selected::after { position:absolute; inset:0; z-index:9; border:2px solid var(--gold); border-radius:3px; pointer-events:none; content:""; }
+.field-board .zone .table-card:hover { outline:1px solid var(--mint); outline-offset:-1px; }
+.field-board .zone .stack-slot > .table-card { width:100%; height:100%; flex-basis:100%; }
+.field-board .zone .stack-count,
+.field-board .zone .stack-badge { right:1px; bottom:1px; z-index:10; }
+.field-board .zone .card-image { object-fit:contain; }
 
 /* 簡易表示のマナ球は小さなゾーンでも見分けやすい大きさにする。 */
 .field-board .mana-zone:not(.expanded-zone) .mana-orb {
@@ -601,8 +533,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 
 /* リモートモードは手札を別ウィンドウへ分離し、自分のフィールドとカード確認を表示する。 */
 .game-screen.remote-mode .field { grid-template-columns:minmax(190px,22%) minmax(0,1fr); }
-.game-screen.remote-mode .opponent-area,
-.game-screen.remote-mode .field-center { display:none; }
+.game-screen.remote-mode .opponent-area { display:none; }
 .game-screen.remote-mode .field-board {
   grid-template-rows:minmax(0,1fr);
   gap:0;

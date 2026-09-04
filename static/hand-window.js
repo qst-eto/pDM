@@ -190,8 +190,9 @@ function showHandMenu(event, uid) {
     renderHand();
   }
   const menu = hand$('#hand-menu');
-  menu.innerHTML = `<button data-hand-stack>カードを重ねる ▶</button><button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button><button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
+  menu.innerHTML = `<button data-hand-stack>カードを重ねる ▶</button><button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("hand-special-zones")}<button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
   positionHandMenu(menu, event);
+  bindSpecialZoneMenu(menu, () => positionHandMenu(menu, event));
   menu.querySelector('[data-hand-stack]').addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
     beginHandStackMode();
@@ -214,7 +215,10 @@ document.addEventListener('click', (event) => {
 });
 hand$('#hand-menu').addEventListener('click', (event) => event.stopPropagation());
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') cancelHandStackMode();
+  if (event.key === 'Escape') {
+    hand$('#hand-menu').classList.add('hidden');
+    cancelHandStackMode();
+  }
 });
 
 if (window.opener && !window.opener.closed) window.opener.postMessage({ type: 'dm-hand-window-ready' }, window.location.origin);

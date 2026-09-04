@@ -51,6 +51,22 @@ async function run() {
       if (commandDelay) await new Promise((resolve) => setTimeout(resolve, commandDelay));
       if (failNext) { failNext = false; return json({ error: 'テスト用の通信エラー' }, 400); }
       if (body.command === 'move') return json({ table });
+      if (body.command === 'tap') {
+        const find = (items, uid) => {
+          for (const item of items) {
+            if (item.uid === uid) return item;
+            const nested = find([...(item.stack?.below || []), ...(item.stack?.above || [])], uid);
+            if (nested) return nested;
+          }
+          return null;
+        };
+        for (const uid of body.card_ids) {
+          const item = Object.values(table.players[0].zones).flatMap((items) => items).concat(table.players[0].shields)
+            .map((root) => find([root], uid)).find(Boolean);
+          if (item) item.tapped = body.value;
+        }
+        return json({ table });
+      }
       assert.equal(body.command, 'stack');
       const zones = Object.values(table.players[0].zones).concat([table.players[0].shields]);
       const target = zones.flat().find((item) => item.uid === body.target_id);
@@ -83,6 +99,15 @@ async function run() {
   try {
     await field.goto(origin);
     await field.locator('#start-match').click();
+    await fieldCard('pile').dispatchEvent('wheel', { deltaY: -100 });
+    await field.waitForFunction(() => state.table.players[0].zones.battle.find((item) => item.uid === 'pile')?.tapped === true);
+    assert.deepEqual(commands.at(-1), { command: 'tap', card_ids: ['under', 'pile'], value: true });
+    assert.equal(table.players[0].zones.battle.find((item) => item.uid === 'pile').tapped, true);
+    assert.equal(table.players[0].zones.battle.find((item) => item.uid === 'pile').stack.below[0].tapped, true);
+    await fieldCard('pile').dispatchEvent('wheel', { deltaY: 100 });
+    await field.waitForFunction(() => state.table.players[0].zones.battle.find((item) => item.uid === 'pile')?.tapped === false);
+    assert.deepEqual(commands.at(-1), { command: 'tap', card_ids: ['under', 'pile'], value: false });
+    console.log('PASS stacked card: wheel tap/untap updates the whole stack');
     await fieldCard('pile').click();
     await field.locator('.inspector-card[data-inspector-uid="pile"]').click();
     await field.locator('[data-inspector-move="mana"]').click();

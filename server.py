@@ -17,12 +17,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
 # DBや画像を別の場所へ移す場合は、この設定欄だけを変更してください。
-DATABASE_DIRECTORY = PROJECT_ROOT
+DATABASE_DIRECTORY = Path(".")
 DATABASE_FILENAME = 'Duelmasters.db'
 DATABASE_PATH = DATABASE_DIRECTORY / DATABASE_FILENAME
 
 IMAGE_DIRECTORIES = (
-    PROJECT_ROOT / 'dm_data',
+    './dm_data',
 )
 IMAGE_ROOTS = IMAGE_DIRECTORIES
 DECK_DIRECTORY = Path(__file__).resolve().parent / 'saved_decks'
