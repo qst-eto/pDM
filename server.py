@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
 # DBや画像を別の場所へ移す場合は、この設定欄だけを変更してください。
-DATABASE_DIRECTORY = Path(".")
+DATABASE_DIRECTORY = Path("./pDM/")
 DATABASE_FILENAME = 'Duelmasters.db'
 DATABASE_PATH = DATABASE_DIRECTORY / DATABASE_FILENAME
 
@@ -593,26 +593,38 @@ def parse_body(handler):
 class SimulatorHandler(BaseHTTPRequestHandler):
     server_version = 'DuelSimulator/0.3'
 
+    @staticmethod
+    def _client_disconnected(error):
+        return isinstance(error, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError))
+
     def log_message(self, format_string, *args):
         return
 
     def send_json(self, payload, status=HTTPStatus.OK):
         data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+        except OSError as error:
+            if not self._client_disconnected(error):
+                raise
 
     def send_file(self, path):
         data = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
-        self.send_header('Content-Type', mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
-        self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-cache')
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header('Content-Type', mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(data)
+        except OSError as error:
+            if not self._client_disconnected(error):
+                raise
 
     def do_GET(self):
         parsed = urlparse(self.path)
