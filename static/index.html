@@ -29,7 +29,23 @@
       </section>
       <section class="setup-panel deck-builder">
         <div class="panel-heading"><div><p class="eyebrow">YOUR DECK</p><h2>デッキ <span id="deck-count" class="count-badge">0 / 40</span></h2></div><div class="deck-actions"><button id="load-deck" class="button button-secondary">一覧を更新</button><button id="save-deck" class="button button-secondary">サーバーに保存</button><button id="clear-deck" class="button button-quiet">クリア</button></div></div>
-        <div id="deck-list" class="deck-list empty-state">カードライブラリからカードを追加してください。</div>
+        <div class="deck-section-controls">
+          <label for="deck-target">カードの追加先</label>
+          <select id="deck-target"><option value="deck">通常デッキ（山札）</option><option value="gachi">ガチャレンジ</option><option value="extra">超次元</option><option value="battle">開始時バトルゾーン</option></select>
+        </div>
+        <div class="deck-tabs" role="tablist" aria-label="デッキの構成">
+          <button role="tab" data-deck-section="deck" aria-selected="true">山札 <span data-deck-count="deck">0/40</span></button>
+          <button role="tab" data-deck-section="gachi" aria-selected="false">ガチャレンジ <span data-deck-count="gachi">0/12</span></button>
+          <button role="tab" data-deck-section="extra" aria-selected="false">超次元 <span data-deck-count="extra">0/8</span></button>
+          <button role="tab" data-deck-section="battle" aria-selected="false">開始時バトル <span data-deck-count="battle">0枚</span></button>
+        </div>
+        <p id="deck-section-help" class="muted"></p>
+        <div id="deck-list" class="deck-list empty-state" role="tabpanel">カードライブラリからカードを追加してください。</div>
+        <div id="gachi-deck-list" class="deck-list hidden" role="tabpanel"></div>
+        <div id="extra-deck-list" class="deck-list hidden" role="tabpanel"></div>
+        <div id="battle-deck-list" class="deck-list hidden" role="tabpanel"></div>
+        <p id="deck-validation" class="deck-validation" aria-live="polite"></p>
+        <label class="deck-exception"><input id="allow-size-exceptions" type="checkbox">特殊デッキの枚数制限を外す（変則対戦用）</label>
         <div class="saved-decks-panel"><div class="panel-heading saved-decks-heading"><div><p class="eyebrow">SAVED DECKS</p><h3>今までのデッキ</h3></div><span class="muted">クリックで読み込み</span></div><div id="saved-deck-list" class="saved-deck-list"><p class="empty-state">保存デッキを読み込み中…</p></div></div>
         <div class="setup-footer"><p class="muted">40枚未満でも開始できます。不足分はDBのカードで補充します。</p><div class="setup-start-options"><label for="play-mode">対戦モード</label><select id="play-mode"><option value="normal">通常モード（相手側も表示）</option><option value="remote">リモートモード（手札を別ウィンドウ）</option></select><button id="start-match" class="button button-primary button-large">フィールドへ入る</button></div></div>
       </section>
@@ -97,13 +113,38 @@
   </section>
 
   <div id="context-menu" class="context-menu hidden"></div>
-  <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
+  <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="battle" class="button button-secondary">バトルゾーンへ</button><button data-inspector-move="extra" class="button button-secondary">超次元へ</button><button data-inspector-move="gachi" class="button button-secondary">ガチャレンジへ</button><button data-inspector-move="abyss" class="button button-secondary">深淵へ</button><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
   <div id="zone-settings" class="zone-settings hidden"><p class="eyebrow">VISIBLE ZONES</p><label><input type="checkbox" data-zone-toggle="extra" checked> 超次元</label><label><input type="checkbox" data-zone-toggle="gachi" checked> ガチャレンジ</label><label><input type="checkbox" data-zone-toggle="abyss" checked> 深淵</label></div>
-  <div id="display-settings" class="display-settings hidden"><p class="eyebrow">DISPLAY SETTINGS</p><label>カードサイズ <input id="card-scale" type="range" min="0.9" max="1.25" step="0.05" value="1.1"><output id="card-scale-value">110%</output></label><label>カード縦比率 <input id="card-height-percent" type="range" min="60" max="100" step="5" value="100"><output id="card-height-percent-value">100%</output></label><label>相手フィールド高さ <input id="opponent-field-size" type="range" min="60" max="140" step="5" value="100"><output id="opponent-field-size-value">100%</output></label><label>自分フィールド高さ <input id="self-field-size" type="range" min="60" max="140" step="5" value="100"><output id="self-field-size-value">100%</output></label><label>自分バトル比率 <input id="self-battle-size" type="range" min="160" max="360" step="10" value="250"><output id="self-battle-size-value">58%</output></label><label>自分補助比率 <input id="self-lower-size" type="range" min="120" max="260" step="10" value="180"><output id="self-lower-size-value">42%</output></label><label>相手バトル比率 <input id="opponent-battle-size" type="range" min="140" max="330" step="10" value="220"><output id="opponent-battle-size-value">64%</output></label><label>相手補助比率 <input id="opponent-lower-size" type="range" min="80" max="200" step="10" value="125"><output id="opponent-lower-size-value">36%</output></label><label>ゾーン名 <select id="label-position"><option value="corner">右下</option><option value="top">上部</option></select></label><label>裏面表示 <select id="back-style"><option value="dummy">ダミー画像</option><option value="pattern">シンプル柄</option></select></label></div>
+  <div id="display-settings" class="display-settings hidden">
+    <p class="eyebrow">DISPLAY SETTINGS</p>
+    <label>カードサイズ <input id="card-scale" type="range" min="0.9" max="1.25" step="0.05" value="1.1"><output id="card-scale-value">110%</output></label>
+    <label>カード縦比率 <input id="card-height-percent" type="range" min="60" max="100" step="5" value="100"><output id="card-height-percent-value">100%</output></label>
+    <fieldset><legend>フィールド全体の高さ</legend>
+      <p class="settings-note">100%で上下半分。自分側を広げると相手側が縮みます（10〜190%）。</p>
+      <label>自分フィールド <input id="self-field-size" type="range" min="10" max="190" step="1" value="100"><output id="self-field-size-value">100%</output></label>
+      <label>相手フィールド <input id="opponent-field-size" type="range" min="10" max="190" step="1" value="100"><output id="opponent-field-size-value">100%</output></label>
+    </fieldset>
+    <p class="settings-note">各ゾーンの高さの配分を調整できます。右の数値は、その側のフィールドに占める割合です。</p>
+    <fieldset><legend>自分のゾーンの高さ</legend>
+      <label>バトル <input id="self-battle-size" type="range" min="1" max="400" step="1" value="250"><output id="self-battle-size-value">58%</output></label>
+      <label>シールド・山札・墓地 <input id="self-primary-size" type="range" min="1" max="400" step="1" value="68"><output id="self-primary-size-value">16%</output></label>
+      <label>手札 <input id="self-hand-size" type="range" min="1" max="400" step="1" value="65"><output id="self-hand-size-value">15%</output></label>
+      <label>マナ <input id="self-mana-size" type="range" min="1" max="400" step="1" value="47"><output id="self-mana-size-value">11%</output></label>
+    </fieldset>
+    <fieldset><legend>相手のゾーンの高さ</legend>
+      <label>バトル <input id="opponent-battle-size" type="range" min="1" max="400" step="1" value="220"><output id="opponent-battle-size-value">64%</output></label>
+      <label>シールド・山札・墓地 <input id="opponent-primary-size" type="range" min="1" max="400" step="1" value="50"><output id="opponent-primary-size-value">14%</output></label>
+      <label>手札 <input id="opponent-hand-size" type="range" min="1" max="400" step="1" value="44"><output id="opponent-hand-size-value">13%</output></label>
+      <label>マナ <input id="opponent-mana-size" type="range" min="1" max="400" step="1" value="31"><output id="opponent-mana-size-value">9%</output></label>
+    </fieldset>
+    <label>ゾーン名 <select id="label-position"><option value="corner">右下</option><option value="top">上部</option></select></label>
+    <label>裏面表示 <select id="back-style"><option value="dummy">ダミー画像</option><option value="pattern">シンプル柄</option></select></label>
+  </div>
   <div id="selection-box" class="selection-box hidden"></div>
   <div id="notice" class="notice"></div>
   <script src="/stack-mode.js"></script>
   <script src="/special-zone-menu.js"></script>
+  <script src="/card-rules.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

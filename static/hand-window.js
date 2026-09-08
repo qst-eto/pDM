@@ -68,6 +68,10 @@ function renderHand() {
 function hand$$(selector) { return Array.from(document.querySelectorAll(selector)); }
 
 function sendHandCommand(body) {
+  if (body.command === 'move' && !cardsCanMove(handState.hand.filter((item) => (body.card_ids || []).includes(item.uid)), body.zone)) {
+    hand$('.hand-help').textContent = 'このカードはそのゾーンへ移動できません。';
+    return;
+  }
   if (handState.stackMode) {
     hand$('.hand-help').textContent = '本体画面で重ねる操作を完了するか、キャンセルしてください。';
     return;
@@ -193,6 +197,7 @@ function showHandMenu(event, uid) {
   menu.innerHTML = `<button data-hand-stack>カードを重ねる ▶</button><button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("hand-special-zones")}<button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
   positionHandMenu(menu, event);
   bindSpecialZoneMenu(menu, () => positionHandMenu(menu, event));
+  updateMoveButtons(menu, handState.hand.filter((item) => handState.selected.has(item.uid)));
   menu.querySelector('[data-hand-stack]').addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
     beginHandStackMode();

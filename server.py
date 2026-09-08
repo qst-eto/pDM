@@ -8,21 +8,22 @@ import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
+from contextlib import closing
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
 # DBや画像を別の場所へ移す場合は、この設定欄だけを変更してください。
-DATABASE_DIRECTORY = Path("./pDM/")
+DATABASE_DIRECTORY = PROJECT_ROOT
 DATABASE_FILENAME = 'Duelmasters.db'
 DATABASE_PATH = DATABASE_DIRECTORY / DATABASE_FILENAME
 
 IMAGE_DIRECTORIES = (
-    './dm_data',
+    PROJECT_ROOT / 'dm_data',
 )
 IMAGE_ROOTS = IMAGE_DIRECTORIES
 DECK_DIRECTORY = Path(__file__).resolve().parent / 'saved_decks'
@@ -115,7 +116,7 @@ def enrich_mana_civils(card):
     if is_twin and card.get('image_files'):
         clauses = ' OR '.join('imagefile LIKE ?' for _ in card['image_files'])
         params = ['%{}%'.format(filename) for filename in card['image_files']]
-        with db_connect() as connection:
+        with closing(db_connect()) as connection:
             rows = connection.execute(
                 'SELECT civiltxt FROM cardlist WHERE ({})'.format(clauses),
                 params,
@@ -140,16 +141,63 @@ def card_view(card):
         'abilitytxt': card.get('abilitytxt', ''),
         'flavortxt': card.get('flavortxt', ''),
         'image_url': card.get('image_url'),
+        'home_zone': card_home_zone(card),
+        'face_options': card.get('face_options', []),
+        'face_actions': card.get('face_actions', {'up': [], 'down': []}),
     }
 
 
+def card_home_zone(card):
+    kind = card.get('typetxt') or ''
+    if 'GRクリーチャー' in kind:
+        return 'gachi'
+    if 'サイキック' in kind:
+        return 'extra'
+    return None
+
+
+def is_extra_face(card):
+    return card_home_zone(card) == 'extra' and not any(char in (card.get('cardname') or '') for char in ('/', '／'))
+
+
+def card_cost(card):
+    match = re.search(r'\d+', str(card.get('costtxt') or ''))
+    return int(match.group()) if match else None
+
+
+def enrich_card_faces(card):
+    card['face_options'] = []
+    card['face_actions'] = {'up': [], 'down': []}
+    if is_extra_face(card) and card.get('packname'):
+        with closing(db_connect()) as connection:
+            rows = connection.execute('SELECT rowid AS id, * FROM cardlist WHERE packname = ? ORDER BY rowid', (card['packname'],)).fetchall()
+        candidates = [dict(row) for row in rows if row['id'] != card['id'] and is_extra_face(dict(row))]
+        card['face_options'] = [{'id': row['id'], 'cardname': row['cardname'], 'costtxt': row.get('costtxt', '')} for row in candidates]
+        if len(rows) >= 3 and card_cost(card) is not None:
+            costs = sorted({card_cost(row) for row in [card, *candidates] if card_cost(row) is not None})
+            current_cost = card_cost(card)
+            lower = max((cost for cost in costs if cost < current_cost), default=None)
+            upper = min((cost for cost in costs if cost > current_cost), default=None)
+            if lower is not None:
+                card['face_actions']['down'] = [
+                    {'id': row['id'], 'cardname': row['cardname'], 'costtxt': row.get('costtxt', '')}
+                    for row in candidates if card_cost(row) == lower
+                ]
+            if upper is not None:
+                card['face_actions']['up'] = [
+                    {'id': row['id'], 'cardname': row['cardname'], 'costtxt': row.get('costtxt', '')}
+                    for row in candidates if card_cost(row) == upper
+                ]
+    return card
+
+
 def get_card(card_id):
-    with db_connect() as connection:
+    with closing(db_connect()) as connection:
         row = connection.execute(
             'SELECT rowid AS id, * FROM cardlist WHERE rowid = ?',
             (card_id,),
         ).fetchone()
-    return enrich_mana_civils(card_from_row(row)) if row else None
+    return enrich_card_faces(enrich_mana_civils(card_from_row(row))) if row else None
 
 
 def get_cards(card_ids):
@@ -185,6 +233,8 @@ def read_saved_deck(path):
             'id': path.name,
             'name': str(payload.get('name') or path.stem),
             'cards': cards[:DECK_SIZE],
+            **{zone: payload.get(zone, []) if isinstance(payload.get(zone, []), list) else [] for zone in ('extra', 'gachi', 'battle')},
+            'allow_size_exceptions': payload.get('allow_size_exceptions') is True,
             'saved_at': str(payload.get('saved_at') or ''),
         }
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -201,25 +251,29 @@ def saved_deck_summaries():
                 'id': deck['id'],
                 'name': deck['name'],
                 'card_count': len(deck['cards']),
+                'extra_count': len(deck['extra']),
+                'gachi_count': len(deck['gachi']),
+                'battle_count': len(deck['battle']),
                 'saved_at': deck['saved_at'],
             })
     return sorted(summaries, key=lambda deck: (deck['saved_at'], deck['id']), reverse=True)
 
 
 def fallback_deck():
-    with db_connect() as connection:
+    with closing(db_connect()) as connection:
         rows = connection.execute(
-            'SELECT rowid AS id, * FROM cardlist ORDER BY rowid DESC LIMIT ?',
-            (DECK_SIZE,),
+            'SELECT rowid AS id, * FROM cardlist ORDER BY rowid DESC',
         ).fetchall()
-    return [enrich_mana_civils(card_from_row(row)) for row in rows]
+    normal = [row for row in rows if not card_home_zone(dict(row))][:DECK_SIZE]
+    return [enrich_mana_civils(card_from_row(row)) for row in normal]
 
 
 def make_instance(card, face_up=True):
     return {
         'uid': uuid.uuid4().hex[:12],
         'card': card_view(card),
-        'face_up': face_up,
+        'face_up': True if card_home_zone(card) == 'extra' else face_up,
+        'home_zone': card_home_zone(card),
         'tapped': False,
         'stack': {'below': [], 'above': []},
     }
@@ -246,7 +300,45 @@ def fill_deck(cards):
     return result[:DECK_SIZE]
 
 
-def new_table(player_name, deck_cards, opponent_cards):
+def load_deck_config(payload, main_key='cards', prefix='', for_start=False):
+    sections = {}
+    for section in ('cards', 'extra', 'gachi', 'battle'):
+        raw = payload.get(prefix + (main_key if section == 'cards' else section), [])
+        if not isinstance(raw, list) or len(raw) > (40 if section == 'cards' else 200):
+            raise ValueError('デッキのカード一覧または枚数が不正です。')
+        ids = []
+        for entry in raw:
+            try:
+                ids.append(int(entry.get('id') if isinstance(entry, dict) else entry))
+            except (ValueError, TypeError):
+                raise ValueError('カードIDが不正です。')
+        sections[section] = get_cards(ids)
+        if len(sections[section]) != len(ids):
+            raise ValueError('DBに存在しないカードが含まれています。')
+    # 旧形式で通常デッキに入っていた特殊カードも山札へ混ぜない。
+    main = []
+    for card in sections['cards']:
+        home = card_home_zone(card)
+        if home:
+            sections[home].append(card)
+        else:
+            main.append(card)
+    sections['cards'] = main
+    for zone in ('extra', 'gachi'):
+        if any(card_home_zone(card) != zone for card in sections[zone]):
+            raise ValueError('{}用ではないカードが含まれています。'.format(ZONE_LABELS[zone]))
+    exceptions = payload.get(prefix + 'allow_size_exceptions') is True
+    if for_start and not exceptions:
+        extra_count = len(sections['extra']) + sum(card_home_zone(card) == 'extra' for card in sections['battle'])
+        gr_count = len(sections['gachi']) + sum(card_home_zone(card) == 'gachi' for card in sections['battle'])
+        if extra_count > 8:
+            raise ValueError('超次元カードは8枚以下にしてください（開始時バトル分を含む）。')
+        if gr_count not in (0, 12):
+            raise ValueError('ガチャレンジを使う場合は12枚にしてください（開始時バトル分を含む）。')
+    return sections
+
+
+def new_table(player_name, deck_cards, opponent_cards, special_decks=None, opponent_special_decks=None):
     player_deck = fill_deck(deck_cards)
     opponent_deck = fill_deck(opponent_cards or fallback_deck())
     RANDOM_SOURCE.shuffle(player_deck)
@@ -258,7 +350,7 @@ def new_table(player_name, deck_cards, opponent_cards):
         'players': [empty_player(player_name or 'プレイヤー'), empty_player('対戦相手')],
         'log': [],
     }
-    for player, cards in zip(table['players'], (player_deck, opponent_deck)):
+    for player, cards, special in zip(table['players'], (player_deck, opponent_deck), (special_decks or {}, opponent_special_decks or {})):
         player['zones']['deck'] = [make_instance(card, False) for card in cards]
         player['shields'] = [player['zones']['deck'].pop(0) for _ in range(
             min(INITIAL_SHIELDS, len(player['zones']['deck']))
@@ -267,6 +359,11 @@ def new_table(player_name, deck_cards, opponent_cards):
             item = player['zones']['deck'].pop(0)
             item['face_up'] = True
             player['zones']['hand'].append(item)
+        gr_cards = list(special.get('gachi', []))
+        RANDOM_SOURCE.shuffle(gr_cards)
+        player['zones']['gachi'] = [make_instance(card, False) for card in gr_cards]
+        player['zones']['extra'] = [make_instance(card) for card in special.get('extra', [])]
+        player['zones']['battle'] = [make_instance(card) for card in special.get('battle', [])]
     log_event(table, '手動対戦テーブルを作成しました。')
     return table
 
@@ -329,6 +426,7 @@ def serialize_item(item, visible, force_reveal=False):
         'face_up': bool(revealed),
         'tapped': item.get('tapped', False),
         'card': item['card'] if revealed else None,
+        'home_zone': item.get('home_zone'),
     }
     stack = item.get('stack')
     if isinstance(stack, dict) and (stack.get('below') or stack.get('above')):
@@ -353,7 +451,6 @@ def public_player(player, player_index):
             serialize_item(
                 item,
                 visible,
-                force_reveal=(player_index == 0 and zone == 'gachi' and index == 0),
             )
             for index, item in enumerate(player['zones'][zone])
         ]
@@ -388,6 +485,9 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
     moving = selected_items(table, card_ids)
     if not moving:
         return False, '対象カードが見つかりません。'
+
+    if not all(can_move_item(item, target_zone) for item in moving):
+        return False, '超次元・ガチャレンジのカードは元のゾーン、バトルゾーン、深淵ゾーンにだけ移動できます。'
 
     for item in moving:
         if not detach_item(table, item):
@@ -448,6 +548,8 @@ def stack_cards(table, card_ids, target_uid, position='above'):
         moving.append(item)
     if not moving:
         return False, '重ねるカードが見つかりません。'
+    if not all(can_move_item(item, target_location[1]) for item in moving):
+        return False, '超次元・ガチャレンジのカードはシールドゾーンに重ねられません。'
 
     for item in moving:
         if not detach_item(table, item):
@@ -466,6 +568,11 @@ def stack_descendants(item):
         for child in stack.get(side, []):
             yield child
             yield from stack_descendants(child)
+
+
+def can_move_item(item, zone):
+    return all(not part.get('home_zone') or zone in (part['home_zone'], 'battle', 'abyss')
+               for part in [item, *stack_descendants(item)])
 
 
 def selected_items(table, card_ids):
@@ -554,6 +661,11 @@ def apply_command(table, command, body):
 
     if command in ('flip', 'tap'):
         value = bool(body.get('value'))
+        if command == 'flip' and not value and any(
+            located and located[3].get('home_zone') == 'extra'
+            for located in (locate_card(table, uid) for uid in body.get('card_ids', []))
+        ):
+            return False, '超次元カードの面は「裏返す」で切り替えてください。'
         changed = 0
         for uid in body.get('card_ids', []):
             located = locate_card(table, uid)
@@ -565,12 +677,36 @@ def apply_command(table, command, body):
                 changed += 1
         return (True, '') if changed else (False, '対象カードが見つかりません。')
 
+    if command == 'turn_over':
+        items = selected_items(table, body.get('card_ids', []))
+        if len(items) != 1 or items[0].get('home_zone') != 'extra':
+            return False, '裏返す超次元カードを1枚選択してください。'
+        item = items[0]
+        current = get_card(item['card']['id'])
+        options = current.get('face_options', []) if current else []
+        actions = current.get('face_actions', {'up': [], 'down': []}) if current else {'up': [], 'down': []}
+        allowed = [option['id'] for option in options]
+        action_ids = [option['id'] for direction in actions.values() for option in direction]
+        if action_ids:
+            allowed = action_ids
+        default_target = options[0]['id'] if len(options) == 1 and not any(actions.values()) else None
+        target_id = body.get('face_id', default_target)
+        if target_id not in allowed:
+            return False, '切り替える面を選択してください。'
+        other = get_card(target_id)
+        if not other:
+            return False, '切り替える面がDBにありません。'
+        item['card'] = card_view(other)
+        item['face_up'] = True
+        log_event(table, '超次元カードを裏返しました。')
+        return True, ''
+
     if command == 'swap':
         first = locate_card(table, body.get('first'))
         second = locate_card(table, body.get('second'))
-        if not first or not second or first[0:2] != second[0:2] or first[1] == 'shields':
+        if not first or not second or first[0:2] != second[0:2] or first[1] == 'shields' or first[4] is not second[4]:
             return False, '同じゾーンのカード同士だけ交換できます。'
-        cards = table['players'][first[0]]['zones'][first[1]]
+        cards = first[4]
         cards[first[2]], cards[second[2]] = cards[second[2]], cards[first[2]]
         return True, ''
 
@@ -632,7 +768,7 @@ class SimulatorHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         if path == '/api/meta':
-            with db_connect() as connection:
+            with closing(db_connect()) as connection:
                 count = connection.execute('SELECT COUNT(*) FROM cardlist').fetchone()[0]
             self.send_json({'card_count': count, 'deck_size': DECK_SIZE, 'zones': ZONE_LABELS})
             return
@@ -662,13 +798,22 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             if civil:
                 clauses.append('civiltxt LIKE ?')
                 params.append('%' + civil + '%')
+            section = query.get('section', [''])[0]
+            extra_clause = "typetxt LIKE '%サイキック%'"
+            gr_clause = "typetxt LIKE '%GRクリーチャー%'"
+            if section == 'extra':
+                clauses.append(extra_clause)
+            elif section == 'gachi':
+                clauses.append(gr_clause)
+            elif section == 'deck':
+                clauses.append('NOT ({} OR {})'.format(extra_clause, gr_clause))
             where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
             try:
                 limit = min(max(int(query.get('limit', ['60'])[0]), 1), 100)
                 offset = max(int(query.get('offset', ['0'])[0]), 0)
             except ValueError:
                 limit, offset = 60, 0
-            with db_connect() as connection:
+            with closing(db_connect()) as connection:
                 rows = connection.execute(
                     'SELECT rowid AS id, * FROM cardlist{} ORDER BY rowid DESC LIMIT ? OFFSET ?'.format(where),
                     params + [limit, offset],
@@ -726,10 +871,15 @@ class SimulatorHandler(BaseHTTPRequestHandler):
         body = parse_body(self)
 
         if path in ('/api/tables', '/api/matches'):
+            try:
+                own = load_deck_config(body, main_key='deck', for_start=True)
+                opponent = load_deck_config(body, main_key='deck', prefix='opponent_', for_start=True)
+            except ValueError as error:
+                self.send_json({'error': str(error)}, HTTPStatus.BAD_REQUEST)
+                return
             table = new_table(
                 body.get('player_name', 'プレイヤー'),
-                get_cards(body.get('deck', [])),
-                get_cards(body.get('opponent_deck', [])),
+                own['cards'], opponent['cards'], own, opponent,
             )
             with TABLES_LOCK:
                 TABLES[table['id']] = table
@@ -737,22 +887,16 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             return
 
         if path == '/api/decks':
-            raw_cards = body.get('cards', [])
-            if not isinstance(raw_cards, list):
-                self.send_json({'error': 'カード一覧が不正です。'}, HTTPStatus.BAD_REQUEST)
+            try:
+                sections = load_deck_config(body)
+            except ValueError as error:
+                self.send_json({'error': str(error)}, HTTPStatus.BAD_REQUEST)
                 return
-            card_ids = []
-            for card_id in raw_cards[:DECK_SIZE]:
-                try:
-                    parsed_id = int(card_id.get('id')) if isinstance(card_id, dict) else int(card_id)
-                except (TypeError, ValueError):
-                    continue
-                if parsed_id > 0:
-                    card_ids.append(parsed_id)
-            cards = get_cards(card_ids)
-            if not cards:
+            if not any(sections.values()):
                 self.send_json({'error': '保存できるカードがありません。'}, HTTPStatus.BAD_REQUEST)
                 return
+            deck_data = {zone: [card['id'] for card in cards] for zone, cards in sections.items()}
+            deck_data['allow_size_exceptions'] = body.get('allow_size_exceptions') is True
             saved_at = datetime.now(timezone.utc).isoformat()
             deck_id = 'deck-{}-{}.json'.format(
                 datetime.now().strftime('%Y%m%d-%H%M%S'),
@@ -763,16 +907,16 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             deck_path = DECK_DIRECTORY / deck_id
             deck_path.write_text(json.dumps({
                 'format': 'dm-table-forge-deck',
-                'version': 2,
+                'version': 3,
                 'name': name,
-                'cards': [card['id'] for card in cards],
+                **deck_data,
                 'saved_at': saved_at,
             }, ensure_ascii=False, indent=2), encoding='utf-8')
             self.send_json({'deck': {
                 'id': deck_id,
                 'name': name,
-                'cards': [card['id'] for card in cards],
-                'card_count': len(cards),
+                **deck_data,
+                'card_count': len(sections['cards']),
                 'saved_at': saved_at,
             }}, HTTPStatus.CREATED)
             return

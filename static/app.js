@@ -2,6 +2,8 @@ const state = {
   cards: [],
   cardCache: new Map(),
   deck: [],
+  specialDecks: { extra: [], gachi: [], battle: [] },
+  deckTarget: 'deck',
   table: null,
   selected: new Set(),
   inspectorSelected: new Set(),
@@ -21,8 +23,12 @@ const state = {
     backStyle: 'dummy',
     selfBattleSize: 250,
     opponentBattleSize: 220,
-    selfLowerSize: 180,
-    opponentLowerSize: 125,
+    selfPrimarySize: 68,
+    selfHandSize: 65,
+    selfManaSize: 47,
+    opponentPrimarySize: 50,
+    opponentHandSize: 44,
+    opponentManaSize: 31,
     selfFieldSize: 100,
     opponentFieldSize: 100,
   },
@@ -41,8 +47,8 @@ const ZONE_VIEW_LABELS = {
   abyss: '深淵',
 };
 const SPECIAL_ZONE_KEYWORDS = {
-  extra: ['超次元', 'サイキック', 'ドラグハート'],
-  gachi: ['ガチャレンジ', 'ＧＲ', 'GRクリーチャー'],
+  extra: ['サイキック'],
+  gachi: ['GRクリーチャー'],
   abyss: ['深淵', 'アビス'],
 };
 
@@ -130,9 +136,10 @@ async function loadMeta() {
 }
 
 async function loadCards() {
-  const params = new URLSearchParams({ q: $('#search').value, civil: $('#civil-filter').value, limit: '80' });
+  const params = new URLSearchParams({ q: $('#search').value, civil: $('#civil-filter').value, section: state.deckTarget, limit: '80' });
   try {
     const data = await api(`/api/cards?${params.toString()}`);
+    if (params.get('section') !== state.deckTarget || params.get('q') !== $('#search').value || params.get('civil') !== $('#civil-filter').value) return;
     state.cards = data.cards;
     state.cards.forEach((card) => state.cardCache.set(card.id, card));
     $('#result-count').textContent = `${state.cards.length}件`;
@@ -148,30 +155,69 @@ function renderLibrary() {
 }
 
 function addToDeck(cardId) {
-  if (state.deck.length >= 40) { notice('デッキは40枚までです。'); return; }
-  state.deck.push(cardId);
+  const section = state.deckTarget;
+  const home = state.cardCache.get(cardId)?.home_zone;
+  if ((section === 'deck' && home) || (['extra', 'gachi'].includes(section) && home !== section)) {
+    notice('カードの種類に合った追加先を選んでください。'); return;
+  }
+  const cards = deckSection(section);
+  const limit = section === 'deck' ? 40 : $('#allow-size-exceptions').checked || section === 'battle' ? 200 : section === 'extra' ? 8 : 12;
+  if (cards.length >= limit) { notice(`この枠は${limit}枚までです。`); return; }
+  cards.push(cardId);
   renderDeck();
+}
+
+function deckSection(section) { return section === 'deck' ? state.deck : state.specialDecks[section]; }
+
+function deckCountError() {
+  if ($('#allow-size-exceptions').checked) return '';
+  const starts = state.specialDecks.battle.map((id) => state.cardCache.get(id)?.home_zone);
+  const extra = state.specialDecks.extra.length + starts.filter((zone) => zone === 'extra').length;
+  const gr = state.specialDecks.gachi.length + starts.filter((zone) => zone === 'gachi').length;
+  if (extra > 8) return '超次元は8枚以下にしてください（開始時バトル分を含む）。';
+  if (gr && gr !== 12) return `ガチャレンジは12枚必要です。現在${gr}枚です（開始時バトル分を含む）。作成途中でも保存できます。`;
+  return '';
+}
+
+function setDeckSection(section) {
+  state.deckTarget = section;
+  $('#deck-target').value = section;
+  renderDeck();
+  loadCards();
 }
 
 function renderDeck() {
   $('#deck-count').textContent = `${state.deck.length} / 40`;
-  const node = $('#deck-list');
-  if (!state.deck.length) { node.className = 'deck-list empty-state'; node.textContent = 'カードライブラリからカードを追加してください。'; return; }
-  node.className = 'deck-list';
-  node.innerHTML = state.deck.map((id, index) => {
-    const card = state.cardCache.get(id) || { cardname: '読み込み中' };
-    return `<span class="deck-chip"><span>${index + 1}. ${cardName(card)}</span><button data-remove-deck="${index}" aria-label="削除">×</button></span>`;
-  }).join('');
-  $$('#deck-list [data-remove-deck]').forEach((button) => button.addEventListener('click', () => { state.deck.splice(Number(button.dataset.removeDeck), 1); renderDeck(); }));
+  const hints = {
+    deck: '通常の山札です。40枚未満の不足分は開始時に補充します。',
+    gachi: '使用する場合は12枚。開始時にシャッフルして裏向きでガチャレンジゾーンに置きます。',
+    extra: '基本8枚以下。選んだ面・並び順で超次元ゾーンに置きます。両面を別々に登録せず、1枚につき開始時の面を選んでください。',
+    battle: '山札と別枠です。指定したカードを開始時からバトルゾーンに置きます。',
+  };
+  $('#deck-section-help').textContent = hints[state.deckTarget];
+  for (const section of ['deck', 'gachi', 'extra', 'battle']) {
+    const cards = deckSection(section);
+    $(`[data-deck-count="${section}"]`).textContent = `${cards.length}${section === 'battle' ? '枚' : '/' + ({ deck: 40, gachi: 12, extra: 8 })[section]}`;
+    $(`[data-deck-section="${section}"]`).setAttribute('aria-selected', String(section === state.deckTarget));
+    const node = $(section === 'deck' ? '#deck-list' : `#${section}-deck-list`);
+    node.className = `deck-list${section === state.deckTarget ? '' : ' hidden'}${cards.length ? '' : ' empty-state'}`;
+    node.innerHTML = cards.length ? cards.map((id, index) => {
+      const card = state.cardCache.get(id) || { cardname: '読み込み中' };
+      return `<span class="deck-chip"><span>${index + 1}. ${cardName(card)}<br><small>${escapeHtml(card.packname || '')}</small></span><button data-remove-deck="${index}" aria-label="削除">×</button></span>`;
+    }).join('') : 'カードライブラリからカードを追加してください。';
+    node.querySelectorAll('[data-remove-deck]').forEach((button) => button.addEventListener('click', () => { cards.splice(Number(button.dataset.removeDeck), 1); renderDeck(); }));
+  }
+  const error = deckCountError();
+  $('#deck-validation').textContent = error;
+  $('#start-match').disabled = Boolean(error);
 }
 
-async function resolveDeckEntries(entries, deckName = '') {
+async function resolveDeckEntries(entries) {
   if (!Array.isArray(entries)) throw new Error('カード一覧が見つかりません。');
   const candidateIds = entries.map((entry) => (entry && typeof entry === 'object' ? entry.id : entry))
     .map((id) => Number(id))
     .filter((id) => Number.isInteger(id) && id > 0)
-    .slice(0, 40);
-  if (!candidateIds.length) throw new Error('有効なカードIDがありません。');
+    .slice(0, 200);
 
   const resolved = await Promise.all(candidateIds.map(async (id) => {
     if (state.cardCache.has(id)) return { id, card: state.cardCache.get(id) };
@@ -184,16 +230,12 @@ async function resolveDeckEntries(entries, deckName = '') {
     }
   }));
   const validCards = resolved.filter(Boolean);
-  if (!validCards.length) throw new Error('DBに存在するカードがありません。');
-  state.deck = validCards.map(({ id }) => id);
-  renderDeck();
-  const skipped = candidateIds.length - validCards.length;
-  const prefix = deckName ? `${deckName}を` : '';
-  notice(skipped ? `${prefix}${validCards.length}枚読み込みました（${skipped}枚はDBにありません）。` : `${prefix}${validCards.length}枚のデッキを読み込みました。`);
+  if (validCards.length !== entries.length) throw new Error('DBに存在しないカードIDが含まれています。');
+  return validCards.map(({ id }) => id);
 }
 
 async function saveDeckToServer() {
-  if (!state.deck.length) { notice('保存するカードがありません。'); return; }
+  if (![state.deck, ...Object.values(state.specialDecks)].some((cards) => cards.length)) { notice('保存するカードがありません。'); return; }
   const fallbackName = `デッキ ${new Date().toLocaleString('ja-JP', { hour12: false })}`;
   const name = window.prompt('保存するデッキ名を入力してください。', fallbackName);
   if (name === null) return;
@@ -201,7 +243,7 @@ async function saveDeckToServer() {
     const data = await api('/api/decks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), cards: state.deck }),
+      body: JSON.stringify({ name: name.trim(), cards: state.deck, ...state.specialDecks, allow_size_exceptions: $('#allow-size-exceptions').checked }),
     });
     notice(`「${data.deck.name}」をサーバーに保存しました。`);
     loadSavedDecks();
@@ -213,7 +255,16 @@ async function saveDeckToServer() {
 async function loadSavedDeck(deckId) {
   try {
     const data = await api(`/api/decks/${encodeURIComponent(deckId)}`);
-    await resolveDeckEntries(data.deck.cards, `「${data.deck.name}」を`);
+    const sections = await Promise.all(['cards', 'extra', 'gachi', 'battle'].map((key) => resolveDeckEntries(data.deck[key] || [])));
+    state.deck = sections[0].filter((id) => !state.cardCache.get(id)?.home_zone);
+    state.specialDecks = { extra: sections[1], gachi: sections[2], battle: sections[3] };
+    for (const id of sections[0]) {
+      const home = state.cardCache.get(id)?.home_zone;
+      if (home) state.specialDecks[home].push(id);
+    }
+    $('#allow-size-exceptions').checked = data.deck.allow_size_exceptions === true;
+    renderDeck();
+    notice(`「${data.deck.name}」を読み込みました。`);
   } catch (error) {
     notice(`デッキの読み込みに失敗しました: ${error.message}`);
   }
@@ -228,7 +279,7 @@ async function loadSavedDecks() {
       node.innerHTML = '<p class="empty-state">保存されたデッキはありません。</p>';
       return;
     }
-    node.innerHTML = data.decks.map((deck) => `<button class="saved-deck-item" data-saved-deck="${escapeHtml(deck.id)}"><span><strong>${escapeHtml(deck.name)}</strong><small>${deck.card_count}枚${deck.saved_at ? ` / ${escapeHtml(new Date(deck.saved_at).toLocaleString('ja-JP'))}` : ''}</small></span><span class="saved-deck-open">開く</span></button>`).join('');
+    node.innerHTML = data.decks.map((deck) => `<button class="saved-deck-item" data-saved-deck="${escapeHtml(deck.id)}"><span><strong>${escapeHtml(deck.name)}</strong><small>山札 ${deck.card_count} / GR ${deck.gachi_count || 0} / 超次元 ${deck.extra_count || 0} / 開始時 ${deck.battle_count || 0}${deck.saved_at ? ` / ${escapeHtml(new Date(deck.saved_at).toLocaleString('ja-JP'))}` : ''}</small></span><span class="saved-deck-open">開く</span></button>`).join('');
     node.querySelectorAll('[data-saved-deck]').forEach((button) => button.addEventListener('click', () => loadSavedDeck(button.dataset.savedDeck)));
   } catch (error) {
     node.innerHTML = `<p class="empty-state">保存デッキの取得に失敗しました: ${escapeHtml(error.message)}</p>`;
@@ -272,10 +323,12 @@ function setHandWindowTable() {
 }
 
 async function startTable() {
+  const error = deckCountError();
+  if (error) { notice(error); return; }
   state.mode = $('#play-mode').value === 'remote' ? 'remote' : 'normal';
   if (state.mode === 'remote') openHandWindow(); else closeHandWindow();
   try {
-    const data = await api('/api/tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: 'プレイヤー', deck: state.deck }) });
+    const data = await api('/api/tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: 'プレイヤー', deck: state.deck, ...state.specialDecks, allow_size_exceptions: $('#allow-size-exceptions').checked }) });
     state.table = data.table;
     state.selected.clear();
     state.hiddenZones.clear();
@@ -287,7 +340,7 @@ async function startTable() {
     $('#hand-window-toggle').classList.toggle('hidden', state.mode !== 'remote');
     setHandWindowTable();
     renderTable();
-    fitGameField();
+    applyDisplaySettings();
   } catch (error) {
     closeHandWindow();
     notice(`テーブル作成に失敗しました: ${error.message}`);
@@ -441,6 +494,7 @@ function renderTable() {
   [0, 1].forEach(renderShields);
   updateSpecialZoneLayout();
   $('#selection-count').textContent = `${state.selected.size}枚選択中`;
+  $('[data-action="face_down"]').disabled = findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
   bindCardEvents();
   fitGameField();
   updateStackModeUI();
@@ -483,7 +537,8 @@ function stackSourcesExist(mode) {
 function isStackTarget(node) {
   const mode = state.stackMode;
   return Boolean(mode && Number(node.dataset.player) === mode.player &&
-    ['battle', 'shields'].includes(node.dataset.zone) && !mode.cardIds.includes(node.dataset.uid));
+    ['battle', 'shields'].includes(node.dataset.zone) && !mode.cardIds.includes(node.dataset.uid) &&
+    cardsCanMove(findGameItems(state.table, mode.cardIds), node.dataset.zone));
 }
 
 function updateStackModeUI() {
@@ -501,7 +556,8 @@ function updateStackModeUI() {
     node.classList.toggle('stack-source', Boolean(mode?.cardIds.includes(node.dataset.uid)));
   });
   $$('.zone').forEach((node) => node.classList.toggle('stack-target-zone', Boolean(mode &&
-    Number(node.dataset.player) === mode.player && ['battle', 'shields'].includes(node.dataset.zone))));
+    Number(node.dataset.player) === mode.player && ['battle', 'shields'].includes(node.dataset.zone) &&
+    cardsCanMove(findGameItems(state.table, mode.cardIds), node.dataset.zone))));
   fitZoneCards();
 }
 
@@ -604,6 +660,12 @@ function showMenu(event, uid, playerIndex = 0, zone = '') {
   node.innerHTML = `${inspectButton}<button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
   positionContextMenu(node, event.clientX, event.clientY);
   bindSpecialZoneMenu(node, () => positionContextMenu(node, event.clientX, event.clientY));
+  updateMoveButtons(node, findGameItems(state.table, state.selected));
+  const clickedItem = findGameItems(state.table, [uid])[0];
+  if (cardHomeZone(clickedItem) === 'extra') addTurnOverButton(node, clickedItem, event);
+  node.querySelectorAll('[data-menu-command="flip"]').forEach((button) => {
+    button.disabled = button.dataset.value === 'false' && findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
+  });
   node.querySelectorAll('[data-menu-command]').forEach((button) => button.addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
     const command = button.dataset.menuCommand;
@@ -656,8 +718,14 @@ function bindCardEvents() {
     node.addEventListener('pointerenter', () => { const item = findTableItem(Number(node.dataset.player), node.dataset.zone, node.dataset.uid); showPreview(item && stackVisualItem(item).card); });
     node.addEventListener('pointerleave', hidePreview);
     node.addEventListener('dragstart', (event) => { event.dataTransfer.setData('text/plain', node.dataset.uid); event.dataTransfer.effectAllowed = 'move'; });
-    node.addEventListener('dragover', (event) => event.preventDefault());
-    node.addEventListener('drop', (event) => { event.preventDefault(); event.stopPropagation(); const from = event.dataTransfer.getData('text/plain'); if (from && from !== node.dataset.uid) sendCommand({ command: 'swap', first: from, second: node.dataset.uid }); });
+    node.addEventListener('drop', (event) => {
+      event.preventDefault(); event.stopPropagation();
+      const from = event.dataTransfer.getData('text/plain');
+      if (!from || from === node.dataset.uid) return;
+      const source = $(`.table-card[data-uid="${CSS.escape(from)}"]`);
+      if (source?.dataset.zone === node.dataset.zone && source?.dataset.player === node.dataset.player) sendCommand({ command: 'swap', first: from, second: node.dataset.uid });
+      else sendCommand({ command: 'move', card_ids: [from], zone: node.dataset.zone, target_player: Number(node.dataset.player) });
+    });
   });
   $$('.mana-orb').forEach((node) => {
     node.addEventListener('click', (event) => {
@@ -679,6 +747,10 @@ function bindCardEvents() {
 
 async function sendCommand(body) {
   if (!state.table) return false;
+  if (body.command === 'move' && !cardsCanMove(findGameItems(state.table, body.card_ids || []), body.zone)) {
+    notice('このカードはそのゾーンへ移動できません。');
+    return false;
+  }
   if (state.stackMode && body.command !== 'stack') {
     notice('重ねる操作を完了するか、キャンセルしてください。');
     return false;
@@ -696,6 +768,12 @@ async function sendCommand(body) {
       state.inspectorItems = state.inspectorItems.filter((item) => !moved.has(item.uid));
       state.inspectorSelected.clear();
       renderInspectorCards();
+    }
+    if (body.command === 'turn_over') {
+      const updated = findGameItems(state.table, body.card_ids)[0];
+      state.inspectorItems = state.inspectorItems.map((item) => item.uid === updated?.uid ? updated : item);
+      if (!$('#deck-inspector').classList.contains('hidden')) renderInspectorCards();
+      showPreview(updated?.card);
     }
     return true;
   } catch (error) { notice(`操作に失敗しました: ${error.message}`); return false; }
@@ -719,14 +797,76 @@ function inspectorCardIds() {
 
 function renderInspectorCards() {
   const node = $('#inspector-cards');
+  hidePreview();
   node.innerHTML = state.inspectorItems.length
     ? state.inspectorItems.map((item) => `<button class="inspector-card${state.inspectorSelected.has(item.uid) ? ' selected' : ''}" data-inspector-uid="${escapeHtml(item.uid)}">${item.card ? cardArt(item.card) + `<span class="card-name">${cardName(item.card)}</span>` : cardArt(null, true)}</button>`).join('')
     : '<p class="empty-state">このゾーンは空です。</p>';
-  node.querySelectorAll('[data-inspector-uid]').forEach((button) => button.addEventListener('click', () => {
+  node.querySelectorAll('[data-inspector-uid]').forEach((button) => {
     const uid = button.dataset.inspectorUid;
-    if (state.inspectorSelected.has(uid)) state.inspectorSelected.delete(uid); else state.inspectorSelected.add(uid);
-    renderInspectorCards();
-  }));
+    const preview = () => showPreview(state.inspectorItems.find((item) => item.uid === uid)?.card);
+    button.setAttribute('aria-pressed', String(state.inspectorSelected.has(uid)));
+    button.addEventListener('pointerenter', preview);
+    button.addEventListener('focus', preview);
+    button.addEventListener('click', () => {
+      if (state.inspectorSelected.has(uid)) state.inspectorSelected.delete(uid); else state.inspectorSelected.add(uid);
+      button.classList.toggle('selected', state.inspectorSelected.has(uid));
+      button.setAttribute('aria-pressed', String(state.inspectorSelected.has(uid)));
+      updateInspectorActions();
+      preview();
+    });
+    button.addEventListener('contextmenu', (event) => {
+      const item = state.inspectorItems.find((item) => item.uid === uid);
+      if (cardHomeZone(item) !== 'extra') return;
+      event.preventDefault();
+      const menu = $('#context-menu');
+      menu.innerHTML = '';
+      addTurnOverButton(menu, item, event);
+      positionContextMenu(menu, event.clientX, event.clientY);
+    });
+  });
+  updateInspectorActions();
+}
+
+function updateInspectorActions() {
+  updateMoveButtons($('#deck-inspector'), findGameItems(state.table, inspectorCardIds()));
+}
+
+function addTurnOverButton(menu, item, event) {
+  const actions = item.card?.face_actions || { up: [], down: [] };
+  const directional = [
+    ['up', 'コストが大きい方へ裏返す'],
+    ['down', 'コストが小さい方へ裏返す'],
+  ];
+  const options = item.card?.face_options || [];
+  const addButton = (label, target, direction = '') => {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.dataset.turnOver = item.uid;
+    if (direction) button.dataset.turnDirection = direction;
+    button.dataset.faceId = String(target.id);
+    button.addEventListener('click', () => {
+      menu.classList.add('hidden');
+      sendCommand({ command: 'turn_over', card_ids: [item.uid], face_id: target.id, direction });
+    });
+    menu.append(button);
+  };
+  for (const [direction, label] of directional) {
+    const targets = actions[direction] || [];
+    if (targets.length === 1) addButton(`${label}（${targets[0].costtxt || ''}）`, targets[0], direction);
+    else if (targets.length > 1) targets.forEach((target) => addButton(`${label}：${target.cardname}`, target, direction));
+  }
+  // Same-cost multi-face cards (サイキックリンクなど) have no cost direction.
+  if (!directional.some(([direction]) => (actions[direction] || []).length)) {
+    if (options.length === 1) addButton('裏返す', options[0]);
+    else if (options.length > 1) options.forEach((target) => addButton(`裏返す：${target.cardname}`, target));
+  }
+  if (!menu.querySelector('[data-turn-over]')) {
+    const button = document.createElement('button');
+    button.textContent = '裏返す（候補なし）';
+    button.disabled = true;
+    menu.append(button);
+  }
+  positionContextMenu(menu, event.clientX, event.clientY);
 }
 
 function openInspector(cards, title = '山札を見る', targetPlayer = 0, sourceZone = '') {
@@ -749,24 +889,38 @@ function openStackInspector(item, playerIndex, zone) {
 }
 
 const DISPLAY_SETTINGS_KEY = 'dm-table-forge-display-settings';
+const ZONE_SIZE_DEFAULTS = {
+  self: { battle: 250, primary: 68, hand: 65, mana: 47 },
+  opponent: { battle: 220, primary: 50, hand: 44, mana: 31 },
+};
 
 function applyDisplaySettings() {
   const settings = state.displaySettings;
   settings.cardScale = Math.min(1.25, Math.max(0.9, Number(settings.cardScale) || 1.1));
   settings.cardHeightPercent = Math.min(100, Math.max(60, Number(settings.cardHeightPercent) || 100));
-  settings.selfFieldSize = Math.min(140, Math.max(60, Number(settings.selfFieldSize) || 100));
-  settings.opponentFieldSize = Math.min(140, Math.max(60, Number(settings.opponentFieldSize) || 100));
+  settings.selfFieldSize = Math.min(190, Math.max(10, Number(settings.selfFieldSize) || 100));
+  settings.opponentFieldSize = 200 - settings.selfFieldSize;
   settings.labelPosition = ['corner', 'top'].includes(settings.labelPosition) ? settings.labelPosition : 'corner';
   settings.backStyle = ['dummy', 'pattern'].includes(settings.backStyle) ? settings.backStyle : 'dummy';
-  settings.selfBattleSize = Math.min(360, Math.max(160, Number(settings.selfBattleSize) || 250));
-  settings.opponentBattleSize = Math.min(330, Math.max(140, Number(settings.opponentBattleSize) || 220));
-  settings.selfLowerSize = Math.min(260, Math.max(120, Number(settings.selfLowerSize) || 180));
-  settings.opponentLowerSize = Math.min(200, Math.max(80, Number(settings.opponentLowerSize) || 125));
   document.documentElement.style.setProperty('--card-scale', String(settings.cardScale));
-  document.documentElement.style.setProperty('--self-battle-row', `${settings.selfBattleSize}fr`);
-  document.documentElement.style.setProperty('--opponent-battle-row', `${settings.opponentBattleSize}fr`);
-  document.documentElement.style.setProperty('--self-lower-row', `${settings.selfLowerSize}fr`);
-  document.documentElement.style.setProperty('--opponent-lower-row', `${settings.opponentLowerSize}fr`);
+  for (const [side, zones] of Object.entries(ZONE_SIZE_DEFAULTS)) {
+    let total = 0;
+    for (const [zone, fallback] of Object.entries(zones)) {
+      const key = `${side}${zone[0].toUpperCase() + zone.slice(1)}Size`;
+      settings[key] = Math.min(400, Math.max(1, Number(settings[key]) || fallback));
+      const detachedHand = side === 'self' && zone === 'hand' && state.mode === 'remote';
+      if (!detachedHand) total += settings[key];
+      document.documentElement.style.setProperty(`--${side}-${zone}-row`, `${settings[key]}fr`);
+      $(`#${side}-${zone}-size`).value = String(settings[key]);
+      $(`#${side}-${zone}-size`).disabled = detachedHand;
+    }
+    document.documentElement.style.setProperty(`--${side}-lower-row`, `${total - settings[`${side}BattleSize`]}fr`);
+    for (const zone of Object.keys(zones)) {
+      const key = `${side}${zone[0].toUpperCase() + zone.slice(1)}Size`;
+      $(`#${side}-${zone}-size-value`).textContent = side === 'self' && zone === 'hand' && state.mode === 'remote'
+        ? '別窓' : `${Math.round(settings[key] / total * 100)}%`;
+    }
+  }
   document.documentElement.style.setProperty('--self-area-row', `${settings.selfFieldSize}fr`);
   document.documentElement.style.setProperty('--opponent-area-row', `${settings.opponentFieldSize}fr`);
   document.body.dataset.labelPosition = settings.labelPosition;
@@ -779,16 +933,6 @@ function applyDisplaySettings() {
   $('#self-field-size-value').textContent = `${Math.round(settings.selfFieldSize)}%`;
   $('#opponent-field-size').value = String(settings.opponentFieldSize);
   $('#opponent-field-size-value').textContent = `${Math.round(settings.opponentFieldSize)}%`;
-  $('#self-battle-size').value = String(settings.selfBattleSize);
-  const selfTotal = settings.selfBattleSize + settings.selfLowerSize;
-  const opponentTotal = settings.opponentBattleSize + settings.opponentLowerSize;
-  $('#self-battle-size-value').textContent = `${Math.round(settings.selfBattleSize / selfTotal * 100)}%`;
-  $('#opponent-battle-size').value = String(settings.opponentBattleSize);
-  $('#opponent-battle-size-value').textContent = `${Math.round(settings.opponentBattleSize / opponentTotal * 100)}%`;
-  $('#self-lower-size').value = String(settings.selfLowerSize);
-  $('#self-lower-size-value').textContent = `${Math.round(settings.selfLowerSize / selfTotal * 100)}%`;
-  $('#opponent-lower-size').value = String(settings.opponentLowerSize);
-  $('#opponent-lower-size-value').textContent = `${Math.round(settings.opponentLowerSize / opponentTotal * 100)}%`;
   $('#label-position').value = settings.labelPosition;
   $('#back-style').value = settings.backStyle;
   fitGameField();
@@ -797,12 +941,29 @@ function applyDisplaySettings() {
 function loadDisplaySettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(DISPLAY_SETTINGS_KEY) || '{}');
+    if (saved.layoutVersion !== 2) {
+      // 旧版の補助ゾーン配分を各段へ分解し、以前の表示を引き継ぐ。
+      for (const side of ['self', 'opponent']) {
+        const lower = Number(saved[`${side}LowerSize`]);
+        const ratios = side === 'self' ? { primary: 1.05, hand: 1, mana: .72 } : { primary: 1.15, hand: 1, mana: .72 };
+        const total = Object.values(ratios).reduce((sum, value) => sum + value, 0);
+        if (Number.isFinite(lower) && lower > 0) for (const [zone, ratio] of Object.entries(ratios)) {
+          saved[`${side}${zone[0].toUpperCase() + zone.slice(1)}Size`] = lower * ratio / total;
+        }
+      }
+      const self = Math.min(140, Math.max(60, Number(saved.selfFieldSize) || 100));
+      const opponent = Math.min(140, Math.max(60, Number(saved.opponentFieldSize) || 100));
+      saved.selfFieldSize = self / (self + opponent) * 200;
+    }
     state.displaySettings = { ...state.displaySettings, ...saved };
     // 旧版の細いカード枠は引き継がず、実画像の縦横比を使用する。
     delete state.displaySettings.battleCardWidth;
+    delete state.displaySettings.selfLowerSize;
+    delete state.displaySettings.opponentLowerSize;
   } catch (error) {
     // 壊れた保存値は初期値で表示する。
   }
+  state.displaySettings.layoutVersion = 2;
   applyDisplaySettings();
 }
 
@@ -812,16 +973,8 @@ function saveDisplaySettings() {
 
 function fitGameField() {
   if ($('#game-screen').classList.contains('hidden')) return;
-  // 列幅はゾーンの高さだけから求める。カード枚数やカードサイズを参照しない。
-  $$('.self-primary-zones, .opponent-primary-zones').forEach((row) => {
-    const height = row.getBoundingClientRect().height;
-    if (!height) return;
-    const pileWidth = Math.ceil(Math.max(0, height - 4) * CARD_ASPECT_RATIO + 4);
-    const specialCount = row.querySelectorAll('.special-zones-above .zone:not(.zone-hidden)').length;
-    const specialWidth = Math.ceil(Math.max(0, (height - 5) / 2 - 4) * CARD_ASPECT_RATIO + 4);
-    setLayoutProperty(row, '--pile-zone-width', `${pileWidth}px`);
-    setLayoutProperty(row, '--grave-zone-width', `${Math.max(pileWidth, specialCount * specialWidth + Math.max(0, specialCount - 1) * 4)}px`);
-  });
+  // 詳細一覧の左端を実際のフィールドに合わせ、左の確認欄を空ける。
+  setLayoutProperty(document.documentElement, '--inspector-left', `${$('.field-board').getBoundingClientRect().left}px`);
   fitZoneCards();
 }
 
@@ -834,7 +987,7 @@ function fitZoneCards() {
   $$('.field-board .zone').forEach((zoneNode) => {
     const content = zoneNode.querySelector('.zone-content');
     const cards = Array.from(content?.querySelectorAll('.table-card') || []);
-    if (!content || !cards.length) return;
+    if (!content) return;
 
     const style = window.getComputedStyle(content);
     const horizontalPadding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
@@ -845,6 +998,12 @@ function fitZoneCards() {
     const availableWidth = bounds.width - horizontalPadding;
     const availableHeight = bounds.height - verticalPadding;
     if (availableWidth <= 0 || availableHeight <= 0) return;
+    const orbs = content.querySelectorAll('.mana-orb');
+    if (orbs.length) {
+      const size = Math.max(0, Math.min(22 * state.displaySettings.cardScale, availableHeight, (availableWidth - columnGap * (orbs.length - 1)) / orbs.length));
+      setLayoutProperty(zoneNode, '--mana-orb-size', `${size}px`);
+    }
+    if (!cards.length) return;
     const canWrap = ['hand', 'shields', 'battle'].includes(zoneNode.dataset.zone) || zoneNode.classList.contains('expanded-zone');
     const maxRows = canWrap && cards.length > 1 ? 2 : 1;
     const sizes = cards.map((card) => card.classList.contains('tapped')
@@ -960,7 +1119,10 @@ function toggleFullScreen() {
 
 $('#search').addEventListener('input', loadCards);
 $('#civil-filter').addEventListener('change', loadCards);
-$('#clear-deck').addEventListener('click', () => { state.deck = []; renderDeck(); });
+$('#clear-deck').addEventListener('click', () => { state.deck = []; state.specialDecks = { extra: [], gachi: [], battle: [] }; renderDeck(); });
+$('#deck-target').addEventListener('change', (event) => setDeckSection(event.target.value));
+$$('[data-deck-section]').forEach((button) => button.addEventListener('click', () => setDeckSection(button.dataset.deckSection)));
+$('#allow-size-exceptions').addEventListener('change', renderDeck);
 $('#save-deck').addEventListener('click', saveDeckToServer);
 $('#load-deck').addEventListener('click', loadSavedDecks);
 $('#start-match').addEventListener('click', startTable);
@@ -983,9 +1145,20 @@ $('#clear-selection').addEventListener('click', () => { state.selected.clear(); 
 
 $('#card-scale').addEventListener('input', (event) => { state.displaySettings.cardScale = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 $('#card-height-percent').addEventListener('input', (event) => { state.displaySettings.cardHeightPercent = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
-[['self-field-size', 'selfFieldSize'], ['opponent-field-size', 'opponentFieldSize'], ['self-battle-size', 'selfBattleSize'], ['opponent-battle-size', 'opponentBattleSize'], ['self-lower-size', 'selfLowerSize'], ['opponent-lower-size', 'opponentLowerSize']].forEach(([id, key]) => {
-  $(`#${id}`).addEventListener('input', (event) => { state.displaySettings[key] = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
-});
+for (const side of ['self', 'opponent']) {
+  $(`#${side}-field-size`).addEventListener('input', (event) => {
+    state.displaySettings.selfFieldSize = side === 'self' ? Number(event.target.value) : 200 - Number(event.target.value);
+    applyDisplaySettings();
+    saveDisplaySettings();
+  });
+  for (const zone of Object.keys(ZONE_SIZE_DEFAULTS[side])) {
+    $(`#${side}-${zone}-size`).addEventListener('input', (event) => {
+      state.displaySettings[`${side}${zone[0].toUpperCase() + zone.slice(1)}Size`] = Number(event.target.value);
+      applyDisplaySettings();
+      saveDisplaySettings();
+    });
+  }
+}
 $('#label-position').addEventListener('change', (event) => { state.displaySettings.labelPosition = event.target.value; applyDisplaySettings(); saveDisplaySettings(); });
 $('#back-style').addEventListener('change', (event) => { state.displaySettings.backStyle = event.target.value; applyDisplaySettings(); saveDisplaySettings(); });
 
@@ -1010,7 +1183,17 @@ $$('.zone').forEach((node) => node.addEventListener('click', (event) => {
   }
   toggleZone(node);
 }));
-$('#field').addEventListener('dragover', (event) => { if (event.target.closest('.zone')) event.preventDefault(); });
+$('#field').addEventListener('dragover', (event) => {
+  const zone = event.target.closest('.zone');
+  if (!zone) return;
+  // A drag's payload is not readable during dragover; retain its UID from dragstart.
+  const source = $('#field .drag-source');
+  if (source && cardsCanMove(findGameItems(state.table, [source.dataset.uid]), zone.dataset.zone)) {
+    event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+  } else event.dataTransfer.dropEffect = 'none';
+});
+$('#field').addEventListener('dragstart', (event) => event.target.closest('.table-card')?.classList.add('drag-source'));
+$('#field').addEventListener('dragend', () => $$('.drag-source').forEach((node) => node.classList.remove('drag-source')));
 $('#field').addEventListener('drop', (event) => {
   const zone = event.target.closest('.zone');
   if (!zone) return;
@@ -1056,6 +1239,7 @@ $('#field').addEventListener('click', (event) => {
 }, { capture: true, passive: false }));
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
+    $('#deck-inspector').classList.add('hidden');
     $('#context-menu').classList.add('hidden');
     endStackMode();
   }

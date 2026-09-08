@@ -9,7 +9,7 @@ const origin = 'http://dm-layout.test';
 const ratio = 650 / 909;
 const zones = ['deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss'];
 const card = (uid, face_up = true) => ({ uid, face_up, tapped: false,
-  card: face_up ? { id: uid, image_url: '/test-card.svg', civiltxt: '水', costtxt: '3' } : null });
+  card: face_up ? { id: uid, name: uid, image_url: '/test-card.svg', civiltxt: '水', costtxt: '3', abilitytxt: `詳細 ${uid}` } : null });
 function fixture() {
   const players = [0, 1].map((p) => ({ name: 'テスト',
     zones: Object.fromEntries(zones.map((zone) => [zone,
@@ -47,6 +47,7 @@ async function run() {
       if (url.pathname.endsWith('/commands')) {
         const body = route.request().postDataJSON();
         commands.push(body);
+        if (body.command === 'view_deck') return json({ table, deck_view: [card('deck-visible'), card('deck-hidden', false)] });
         assert.equal(body.command, 'move');
         const player = table.players[0];
         const sources = Object.values(player.zones).concat([player.shields]);
@@ -90,7 +91,7 @@ async function run() {
         assert.ok(Math.abs(r.width - r.height * (item.tapped ? 1 / ratio : ratio)) < 0.04, message);
         assert.ok(r.x >= outer.x - 0.5 && r.right <= outer.right + 0.5, message);
         assert.ok(r.y >= outer.y - 0.5 && r.bottom <= outer.bottom + 0.5, message);
-        if (fill && !['extra', 'gachi', 'abyss'].includes(zone.zone)) assert.ok(zone.box.height - r.height < 4.5, message);
+        if (fill && !['extra', 'gachi', 'abyss'].includes(zone.zone)) assert.ok(zone.box.height - r.height < 0.5, message);
       }
       return result;
     };
@@ -104,11 +105,90 @@ async function run() {
     const screenshot = path.join(os.tmpdir(), 'dm-field-layout-650x909.png');
     await page.screenshot({ path: screenshot });
     console.log('SCREENSHOT ' + screenshot);
+    // Actual inspector entry points share the normal left preview, including hidden-card clearing.
+    await page.locator('[data-command="view_deck"][data-player="0"]').click();
+    const inspector = page.locator('#deck-inspector');
+    const visibleCard = inspector.locator('[data-inspector-uid="deck-visible"]');
+    await visibleCard.hover();
+    assert.equal(await page.locator('#viewer-content .preview-text').textContent(), '詳細 deck-visible');
+    const panel = await inspector.locator('.modal-card').boundingBox();
+    const leftViewer = await page.locator('#card-viewer').boundingBox();
+    assert.ok(panel.x > leftViewer.x + leftViewer.width, 'Inspector must leave the left preview unobstructed');
+    assert.equal(await page.evaluate(() => {
+      const r = document.querySelector('#viewer-content').getBoundingClientRect();
+      return Boolean(document.elementFromPoint(r.x + r.width / 2, r.y + 30).closest('#card-viewer'));
+    }), true, 'Preview must stay above the modal backdrop and receive scrolling');
+    await visibleCard.click();
+    assert.equal(await visibleCard.getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#viewer-content .preview-text').textContent(), '詳細 deck-visible');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'dm-zone-inspector-preview.png') });
+    await inspector.locator('[data-inspector-uid="deck-hidden"]').hover();
+    assert.equal(await page.locator('#viewer-content .card-art').count(), 0);
+    await page.locator('#close-inspector').focus();
+    await visibleCard.focus();
+    assert.equal(await page.locator('#viewer-content .preview-text').textContent(), '詳細 deck-visible');
+    await page.keyboard.press('Escape');
+    assert.equal(await inspector.isVisible(), false);
+    await page.locator('.zone[data-player="0"][data-zone="graveyard"] .table-card').click();
+    await inspector.locator('.inspector-card').hover();
+    assert.equal(await page.locator('#viewer-content .preview-text').textContent(), '詳細 0-graveyard-0');
+    await page.locator('#close-inspector').click();
+    console.log('PASS inspector: deck/graveyard hover, selection, keyboard focus, hidden cards, unobstructed left preview');
     for (const viewport of [{ width: 1440, height: 1000 }, { width: 1000, height: 650 }]) {
       await page.setViewportSize(viewport);
       await check(true);
     }
     await page.setViewportSize({ width: 1230, height: 860 });
+    const defaults = await page.evaluate(() => ({ ...state.displaySettings }));
+    const setSlider = async (id, value) => {
+      await page.locator('#' + id).fill(String(value));
+      await settle();
+    };
+    const widths = (items) => items.map((z) => [z.player, z.zone, z.box.x, z.box.width]);
+    const normal = await check(true);
+    await page.locator('#display-toggle').click();
+    for (const value of [10, 190, 100]) {
+      await setSlider('self-field-size', value);
+      assert.equal(await page.locator('#opponent-field-size').inputValue(), String(200 - value));
+      const result = await check();
+      assert.deepEqual(widths(result), widths(normal), 'Height adjustment must never move column boundaries');
+      const sizes = await page.evaluate(() => [...document.querySelectorAll('.field-board > .player-area')].map((node) => node.getBoundingClientRect().height));
+      assert.ok(Math.abs(sizes[1] / (sizes[0] + sizes[1]) - value / 200) < .001, '10–190% must correspond to 5–95% of the field');
+    }
+    await setSlider('opponent-field-size', 190);
+    assert.equal(await page.locator('#self-field-size').inputValue(), '10');
+    await setSlider('self-field-size', 100);
+    for (const [side, player] of [['self', '0'], ['opponent', '1']]) {
+      for (const [control, zone, other] of [['primary', 'shields', 'mana'], ['mana', 'mana', 'shields']]) {
+        await page.evaluate((settings) => { state.displaySettings = { ...settings }; applyDisplaySettings(); }, defaults);
+        const base = await check();
+        await setSlider(`${side}-${control}-size`, 250);
+        const enlarged = await check();
+        const height = (items, name) => items.find((z) => z.player === player && z.zone === name).box.height;
+        assert.ok(height(enlarged, zone) > height(base, zone), `${side} ${control} should grow`);
+        assert.ok(height(enlarged, other) < height(base, other), `${side} ${control} should have an independent weight`);
+        assert.deepEqual(widths(enlarged), widths(base));
+      }
+    }
+    await page.evaluate((settings) => { state.displaySettings = { ...settings }; applyDisplaySettings(); saveDisplaySettings(); }, defaults);
+    await page.locator('#display-toggle').click();
+    // Adjacent rows/columns have exactly one 1px divider and no double borders or gutters.
+    await page.evaluate(() => {
+      window.layoutBoundaries = [...document.querySelectorAll('.field-board .zone')].map((node) => {
+        const style = getComputedStyle(node);
+        return [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth, style.borderRadius];
+      });
+    });
+    for (const borders of await page.evaluate(() => window.layoutBoundaries)) assert.deepEqual(borders, ['0px', '0px', '0px', '0px', '0px']);
+    const dividers = await page.evaluate(() => {
+      const q = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const self = q('.self-area'), enemy = q('.opponent-area');
+      const battle = q('.self-battle-zone'), primary = q('.self-primary-zones'), hand = q('.self-hand-zone'), mana = q('.self-mana-zone');
+      const shield = q('.self-primary-zones .shield-zone'), deck = q('.self-primary-zones .deck-zone'), grave = q('.self-primary-zones .grave-column');
+      return [self.y - enemy.bottom, primary.y - battle.bottom, hand.y - primary.bottom, mana.y - hand.bottom, deck.x - shield.right, grave.x - deck.right];
+    });
+    dividers.forEach((gap) => assert.ok(Math.abs(gap - 1) < .04, `Expected one 1px divider, got ${gap}`));
+    console.log('PASS layout settings: 10/190 extremes, mirrored field sliders, independent mana/primary heights, fixed widths, single boundaries');
     const before = await check(true);
     await page.evaluate(() => {
       for (const p of state.table.players) for (const zone of ['battle', 'hand']) {
@@ -142,9 +222,13 @@ async function run() {
       state.displaySettings.opponentFieldSize = 100;
       state.displaySettings.selfFieldSize = 100;
       state.displaySettings.selfBattleSize = 360;
-      state.displaySettings.selfLowerSize = 120;
+      state.displaySettings.selfPrimarySize = 45;
+      state.displaySettings.selfHandSize = 44;
+      state.displaySettings.selfManaSize = 31;
       state.displaySettings.opponentBattleSize = 330;
-      state.displaySettings.opponentLowerSize = 80;
+      state.displaySettings.opponentPrimarySize = 32;
+      state.displaySettings.opponentHandSize = 28;
+      state.displaySettings.opponentManaSize = 20;
       state.displaySettings.cardHeightPercent = 80;
       applyDisplaySettings();
     });
@@ -197,6 +281,44 @@ async function run() {
       assert.equal(commands.length, count + 1);
       assert.equal(commands.at(-1).zone, zone);
     }
+    // Convert earlier saved settings and persist independent weights across a real reload.
+    await page.evaluate(() => {
+      localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify({ selfFieldSize: 140, opponentFieldSize: 100,
+        selfBattleSize: 300, selfLowerSize: 240, opponentBattleSize: 260, opponentLowerSize: 150, cardHeightPercent: 95 }));
+      loadDisplaySettings();
+    });
+    const migrated = await page.evaluate(() => ({ ...state.displaySettings }));
+    assert.ok(Math.abs(migrated.selfFieldSize - 140 / 240 * 200) < .001);
+    assert.ok(Math.abs(migrated.selfPrimarySize + migrated.selfHandSize + migrated.selfManaSize - 240) < .001);
+    assert.ok(Math.abs(migrated.opponentPrimarySize / migrated.opponentManaSize - 1.15 / .72) < .001);
+    assert.equal(migrated.selfBattleSize, 300);
+    assert.equal(migrated.selfLowerSize, undefined);
+    await page.evaluate(() => {
+      state.displaySettings.selfFieldSize = 190;
+      state.displaySettings.selfPrimarySize = 150;
+      state.displaySettings.selfManaSize = 240;
+      state.displaySettings.cardHeightPercent = 100;
+      applyDisplaySettings();
+      saveDisplaySettings();
+    });
+    await page.reload();
+    assert.equal(await page.locator('#self-field-size').inputValue(), '190');
+    assert.equal(await page.locator('#self-primary-size').inputValue(), '150');
+    assert.equal(await page.locator('#self-mana-size').inputValue(), '240');
+    // The remote field excludes the detached hand from all height calculations.
+    await page.locator('#play-mode').selectOption('remote');
+    await page.locator('#start-match').click();
+    await check();
+    assert.equal(await page.locator('.self-hand-zone').isVisible(), false);
+    assert.equal(await page.locator('#self-hand-size').isDisabled(), true);
+    const remoteRows = await page.evaluate(() => ['.self-battle-zone', '.self-primary-zones', '.self-mana-zone'].map((selector) => document.querySelector(selector).getBoundingClientRect().height));
+    assert.ok(Math.abs(remoteRows[1] / remoteRows[2] - 150 / 240) < .01);
+    assert.ok(Math.abs(remoteRows[0] / remoteRows[2] - 300 / 240) < .01);
+    await page.locator('.zone[data-player="0"][data-zone="graveyard"] .table-card').click();
+    await page.locator('#inspector-cards .inspector-card').hover();
+    assert.equal(await page.locator('#viewer-content .preview-text').textContent(), '詳細 0-graveyard-0');
+    await page.locator('#close-inspector').click();
+    console.log('PASS saved settings: legacy migration, reload persistence, remote independent heights and inspector preview');
     assert.deepEqual(errors, []);
     console.log('PASS remote hand menu: all three destinations, hand refresh, no uncaught browser errors');
   } finally { await browser.close(); }
