@@ -7,14 +7,14 @@ const { chromium } = require('playwright');
 const staticRoot = path.resolve(__dirname, '../static');
 const origin = 'http://dm-layout.test';
 const ratio = 650 / 909;
-const zones = ['deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss'];
+const zones = ['deck', 'hand', 'mana', 'graveyard', 'waiting', 'battle', 'extra', 'gachi', 'abyss'];
 const card = (uid, face_up = true) => ({ uid, face_up, tapped: false,
   card: face_up ? { id: uid, name: uid, image_url: '/test-card.svg', civiltxt: '水', costtxt: '3', abilitytxt: `詳細 ${uid}` } : null });
 function fixture() {
   const players = [0, 1].map((p) => ({ name: 'テスト',
     zones: Object.fromEntries(zones.map((zone) => [zone,
       ['extra', 'gachi', 'abyss', 'mana'].includes(zone) ? [] :
-        Array.from({ length: zone === 'hand' ? 5 : zone === 'battle' ? 2 : 1 }, (_, i) =>
+        Array.from({ length: zone === 'hand' ? 6 : zone === 'battle' ? 2 : 1 }, (_, i) =>
           card(`${p}-${zone}-${i}`, zone !== 'deck' && !(p === 1 && zone === 'hand')))])),
     shields: Array.from({ length: 5 }, (_, i) => card(`${p}-shield-${i}`, false)),
     shield_count: 5, counts: {},
@@ -281,6 +281,12 @@ async function run() {
       assert.equal(commands.length, count + 1);
       assert.equal(commands.at(-1).zone, zone);
     }
+    const waitingSource = hand.locator('.hand-card').first();
+    const waitingUid = await waitingSource.getAttribute('data-uid');
+    await waitingSource.click({ button: 'right' });
+    await handMenu.locator('[data-zone="waiting"]').click();
+    await hand.locator(`.hand-card[data-uid="${waitingUid}"]`).waitFor({ state: 'detached' });
+    assert.equal(commands.at(-1).zone, 'waiting');
     // Convert earlier saved settings and persist independent weights across a real reload.
     await page.evaluate(() => {
       localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify({ selfFieldSize: 140, opponentFieldSize: 100,
@@ -320,7 +326,7 @@ async function run() {
     await page.locator('#close-inspector').click();
     console.log('PASS saved settings: legacy migration, reload persistence, remote independent heights and inspector preview');
     assert.deepEqual(errors, []);
-    console.log('PASS remote hand menu: all three destinations, hand refresh, no uncaught browser errors');
+    console.log('PASS remote hand menu: special and waiting destinations, hand refresh, no uncaught browser errors');
   } finally { await browser.close(); }
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });

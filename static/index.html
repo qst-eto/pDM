@@ -55,7 +55,7 @@
   <section id="game-screen" class="game-screen hidden">
     <header class="gamebar">
       <div class="game-brand"><span class="brand-mark">✦</span><div><p class="eyebrow">PRIVATE TABLE / LOCAL SERVER</p><strong>DM Table Forge</strong></div></div>
-      <div class="game-status"><span id="turn-badge" class="turn-badge">WAITING</span><span id="table-id" class="muted"></span><button id="copy-room" class="icon-button hidden">部屋番号をコピー</button></div>
+      <div class="game-status"><span id="turn-badge" class="turn-badge">WAITING</span><span id="table-id" class="muted"></span><span id="spectator-count" class="muted hidden"></span><button id="copy-room" class="icon-button hidden">部屋番号をコピー</button></div>
       <div class="game-tools"><button id="hand-window-toggle" class="icon-button hidden">手札ウィンドウ</button><button id="zones-toggle" class="icon-button">ゾーン表示</button><button id="display-toggle" class="icon-button">表示設定</button><button id="fullscreen" class="icon-button">全画面</button><button id="back-setup" class="icon-button">デッキへ戻る</button></div>
     </header>
     <div id="stack-mode-bar" class="stack-mode-bar hidden"></div>
@@ -71,6 +71,7 @@
           <div class="zone compact-zone mana-zone opponent-mana-zone" data-zone="mana" data-player="1"><div class="zone-head"><span>マナゾーン</span><em data-count="mana">0</em></div><div class="zone-content" data-content="mana"></div></div>
           <div class="zone opponent-hand-zone" data-zone="hand" data-player="1"><div class="zone-head"><span>手札</span><em data-count="hand">0</em></div><div class="zone-content" data-content="hand"></div></div>
           <div class="opponent-primary-zones">
+            <div class="zone compact-zone waiting-zone" data-zone="waiting" data-player="1"><div class="zone-head"><span>待機</span><em data-count="waiting">0</em></div><div class="zone-content" data-content="waiting"></div></div>
             <div class="zone compact-zone shield-zone" data-zone="shields" data-player="1"><div class="zone-head"><span>シールド</span><em data-count="shields">0</em></div><div class="zone-content" data-content="shields"></div></div>
             <div class="zone compact-zone deck-zone" data-zone="deck" data-player="1"><div class="zone-head"><span>山札</span><button data-command="view_deck" data-player="1">見る</button></div><div class="zone-content" data-content="deck"></div><button class="zone-action" data-command="draw" data-player="1">ドロー</button></div>
             <div class="grave-column opponent-grave-column">
@@ -92,6 +93,7 @@
         <div class="zone self-battle-zone" data-zone="battle" data-player="0"><div class="zone-content" data-content="battle"></div></div>
         <div class="self-lower-zones">
           <div class="self-primary-zones">
+            <div class="zone compact-zone waiting-zone" data-zone="waiting" data-player="0"><div class="zone-head"><span>待機</span><em data-count="waiting">0</em></div><div class="zone-content" data-content="waiting"></div></div>
             <div class="zone compact-zone shield-zone" data-zone="shields" data-player="0"><div class="zone-head"><span>シールド</span><em data-count="shields">0</em></div><div class="zone-content" data-content="shields"></div></div>
             <div class="zone compact-zone deck-zone" data-zone="deck" data-player="0"><div class="zone-head"><span>山札</span><button data-command="view_deck" data-player="0">見る</button></div><div class="zone-content" data-content="deck"></div><button class="zone-action" data-command="draw" data-player="0">ドロー</button></div>
             <div class="grave-column">
@@ -103,7 +105,7 @@
               <div class="zone compact-zone grave-zone" data-zone="graveyard" data-player="0"><div class="zone-head"><span>墓地</span><em data-count="graveyard">0</em></div><div class="zone-content" data-content="graveyard"></div></div>
             </div>
           </div>
-          <div class="zone self-hand-zone" data-zone="hand" data-player="0"><div class="zone-head"><span>手札</span><em data-count="hand">0</em></div><div class="zone-content" data-content="hand"></div></div>
+          <div class="zone self-hand-zone" data-zone="hand" data-player="0"><div class="zone-head"><span>手札</span><span id="hand-visibility-controls" class="hand-visibility-controls"><button id="toggle-opponent-hand">対戦相手に公開</button><button id="toggle-spectator-hand">観戦者に公開</button></span><em data-count="hand">0</em></div><div class="zone-content" data-content="hand"></div></div>
           <div class="zone compact-zone mana-zone self-mana-zone" data-zone="mana" data-player="0"><div class="zone-head"><span>マナゾーン</span><em data-count="mana">0</em></div><div class="zone-content" data-content="mana"></div></div>
         </div>
       </section>
@@ -113,7 +115,7 @@
   </section>
 
   <div id="context-menu" class="context-menu hidden"></div>
-  <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="battle" class="button button-secondary">バトルゾーンへ</button><button data-inspector-move="extra" class="button button-secondary">超次元へ</button><button data-inspector-move="gachi" class="button button-secondary">ガチャレンジへ</button><button data-inspector-move="abyss" class="button button-secondary">深淵へ</button><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
+  <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="battle" class="button button-secondary">バトルゾーンへ</button><button data-inspector-move="waiting" class="button button-secondary">待機ゾーンへ</button><button data-inspector-move="extra" class="button button-secondary">超次元へ</button><button data-inspector-move="gachi" class="button button-secondary">ガチャレンジへ</button><button data-inspector-move="abyss" class="button button-secondary">深淵へ</button><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
   <div id="zone-settings" class="zone-settings hidden"><p class="eyebrow">VISIBLE ZONES</p><label><input type="checkbox" data-zone-toggle="extra" checked> 超次元</label><label><input type="checkbox" data-zone-toggle="gachi" checked> ガチャレンジ</label><label><input type="checkbox" data-zone-toggle="abyss" checked> 深淵</label></div>
   <div id="display-settings" class="display-settings hidden">
     <p class="eyebrow">DISPLAY SETTINGS</p>
@@ -127,13 +129,13 @@
     <p class="settings-note">各ゾーンの高さの配分を調整できます。右の数値は、その側のフィールドに占める割合です。</p>
     <fieldset><legend>自分のゾーンの高さ</legend>
       <label>バトル <input id="self-battle-size" type="range" min="1" max="400" step="1" value="250"><output id="self-battle-size-value">58%</output></label>
-      <label>シールド・山札・墓地 <input id="self-primary-size" type="range" min="1" max="400" step="1" value="68"><output id="self-primary-size-value">16%</output></label>
+      <label>待機・シールド・山札・墓地 <input id="self-primary-size" type="range" min="1" max="400" step="1" value="68"><output id="self-primary-size-value">16%</output></label>
       <label>手札 <input id="self-hand-size" type="range" min="1" max="400" step="1" value="65"><output id="self-hand-size-value">15%</output></label>
       <label>マナ <input id="self-mana-size" type="range" min="1" max="400" step="1" value="47"><output id="self-mana-size-value">11%</output></label>
     </fieldset>
     <fieldset><legend>相手のゾーンの高さ</legend>
       <label>バトル <input id="opponent-battle-size" type="range" min="1" max="400" step="1" value="220"><output id="opponent-battle-size-value">64%</output></label>
-      <label>シールド・山札・墓地 <input id="opponent-primary-size" type="range" min="1" max="400" step="1" value="50"><output id="opponent-primary-size-value">14%</output></label>
+      <label>待機・シールド・山札・墓地 <input id="opponent-primary-size" type="range" min="1" max="400" step="1" value="50"><output id="opponent-primary-size-value">14%</output></label>
       <label>手札 <input id="opponent-hand-size" type="range" min="1" max="400" step="1" value="44"><output id="opponent-hand-size-value">13%</output></label>
       <label>マナ <input id="opponent-mana-size" type="range" min="1" max="400" step="1" value="31"><output id="opponent-mana-size-value">9%</output></label>
     </fieldset>

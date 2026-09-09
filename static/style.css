@@ -111,6 +111,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .wide-hand .zone-content { flex-wrap:nowrap; }
 .card-back { position:relative; width:31px; height:45px; flex:0 0 auto; border:1px solid #8fa7bd; border-radius:5px; background:repeating-linear-gradient(45deg,#233c59 0 4px,#395778 4px 8px); }
 .table-card { position:relative; flex:0 0 57px; border:1px solid #617c8d; border-radius:6px; background:#15202a; padding:0; overflow:visible; text-align:left; transition:transform .12s, border-color .12s; }
+.card-note { position:absolute; top:2px; right:2px; z-index:12; max-width:78%; overflow:hidden; border:1px solid rgba(114,88,8,.48); border-radius:2px; background:#f6dc74; box-shadow:0 2px 5px rgba(0,0,0,.42); color:#352b0a; padding:2px 3px; font-size:8px; font-weight:700; line-height:1.15; white-space:nowrap; text-overflow:ellipsis; }
 .stack-badge { position:absolute; right:-4px; bottom:-5px; z-index:10; border:1px solid #7dc8b1; border-radius:999px; background:#173b3a; color:#d8fff1; padding:2px 4px; font-size:8px; line-height:1; white-space:nowrap; }
 .table-card:hover { z-index:20; transform:translateY(-3px); border-color:var(--mint); }
 .table-card.selected { border-color:var(--gold); box-shadow:0 0 0 2px rgba(243,200,108,.35); transform:translateY(-5px); }
@@ -150,7 +151,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 body:has(#deck-inspector:not(.hidden)) .card-viewer { position:relative; z-index:91; }
 .modal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
 .inspector-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(105px,100%),1fr)); gap:9px; margin:16px 0; }
-.inspector-card { border:1px solid var(--line); border-radius:8px; background:#141d26; color:var(--text); padding:0; overflow:hidden; text-align:left; }
+.inspector-card { position:relative; border:1px solid var(--line); border-radius:8px; background:#141d26; color:var(--text); padding:0; overflow:hidden; text-align:left; }
 .inspector-card.selected { border-color:var(--gold); box-shadow:0 0 0 2px rgba(243,200,108,.3); }
 .inspector-card:hover, .inspector-card:focus-visible { outline:2px solid var(--mint); outline-offset:-2px; }
 .inspector-card .card-art { height:125px; }
@@ -231,6 +232,8 @@ body:has(#deck-inspector:not(.hidden)) .card-viewer { position:relative; z-index
 .zone { padding:3px; }
 .zone-head { position:absolute; right:4px; bottom:3px; z-index:8; width:max-content; max-width:calc(100% - 8px); height:auto; border-radius:4px; background:rgba(10,20,27,.76); padding:1px 3px; pointer-events:none; font-size:9px; line-height:1.25; }
 .zone-head button { pointer-events:auto; }
+.hand-visibility-controls { display:flex; gap:4px; pointer-events:auto; }
+.zone-head .hand-visibility-controls button { border:1px solid rgba(112,228,192,.45); border-radius:3px; background:rgba(16,43,42,.92); padding:2px 5px; white-space:nowrap; }
 .deck-zone .zone-head { left:4px; right:auto; }
 .zone-content { height:100%; min-height:0; justify-content:center; overflow:visible; padding:2px; }
 .battle-label { position:relative; z-index:8; flex:0 0 0; height:0; min-height:0; padding:0; pointer-events:none; }
@@ -473,7 +476,7 @@ body:has(#deck-inspector:not(.hidden)) .card-viewer { position:relative; z-index
 
 /* 列幅は横方向の空きだけで決め、高さ設定から独立させる。 */
 .self-primary-zones,
-.opponent-primary-zones { grid-template-columns:minmax(0,1fr) minmax(86px,.24fr) minmax(65px,.26fr); gap:1px; }
+.opponent-primary-zones { grid-template-columns:minmax(52px,.18fr) minmax(0,1fr) minmax(86px,.24fr) minmax(65px,.26fr); gap:1px; }
 .field-board .deck-zone .zone-content {
   justify-content:center;
   padding-right:52px;

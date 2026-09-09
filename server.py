@@ -34,13 +34,14 @@ INITIAL_HAND_SIZE = 5
 INITIAL_SHIELDS = 5
 RANDOM_SOURCE = random.SystemRandom()
 
-ZONES = ('deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss')
+ZONES = ('deck', 'hand', 'mana', 'graveyard', 'waiting', 'battle', 'extra', 'gachi', 'abyss')
 ZONE_LABELS = {
     'shields': 'シールドゾーン',
     'deck': '山札',
     'hand': '手札',
     'mana': 'マナ',
     'graveyard': '墓地',
+    'waiting': '待機ゾーン',
     'battle': 'バトルゾーン',
     'extra': '超次元',
     'gachi': 'ガチャレンジ',
@@ -275,6 +276,7 @@ def make_instance(card, face_up=True):
         'face_up': True if card_home_zone(card) == 'extra' else face_up,
         'home_zone': card_home_zone(card),
         'tapped': False,
+        'note': '',
         'stack': {'below': [], 'above': []},
     }
 
@@ -284,6 +286,8 @@ def empty_player(name):
         'name': name,
         'zones': {zone: [] for zone in ZONES},
         'shields': [],
+        'hand_revealed_to_opponent': False,
+        'hand_visible_to_spectators': False,
     }
 
 
@@ -393,6 +397,7 @@ def new_online_room(player_name, deck_cards, special_decks=None):
             empty_player('対戦相手を待っています'),
         ],
         'player_tokens': [uuid.uuid4().hex, None],
+        'spectator_tokens': [],
         'log': [],
     }
     log_event(table, '通信対戦の部屋を作成しました。対戦相手を待っています。')
@@ -458,6 +463,8 @@ def serialize_item(item, visible, force_reveal=False):
         'tapped': item.get('tapped', False),
         'card': item['card'] if revealed else None,
         'home_zone': item.get('home_zone'),
+        # 非公開カードのメモからカード内容を推測できないよう、カードと同じ公開範囲にする。
+        'note': str(item.get('note') or '') if revealed else '',
     }
     stack = item.get('stack')
     if isinstance(stack, dict) and (stack.get('below') or stack.get('above')):
@@ -468,13 +475,15 @@ def serialize_item(item, visible, force_reveal=False):
     return result
 
 
-def public_player(player, player_index):
+def public_player(player, player_index, hand_visible=False):
     zones = {}
     for zone in ZONES:
         visible = (
             (player_index == 0 and zone != 'deck')
-            or (player_index == 1 and zone not in ('deck', 'hand', 'shields'))
+            or (player_index != 0 and zone not in ('deck', 'hand', 'shields'))
         )
+        if zone == 'hand' and player_index != 0:
+            visible = bool(hand_visible)
         if zone == 'deck':
             # 通常の山札は非公開だが、表向きにした一番上のカードは公開する。
             visible = bool(player['zones'][zone][0].get('face_up')) if player['zones'][zone] else False
@@ -492,26 +501,47 @@ def public_player(player, player_index):
         'shields': [serialize_item(item, True) for item in player['shields']],
         'counts': {zone: count_stack_items(player['zones'][zone]) for zone in ZONES},
         'shield_count': count_stack_items(player['shields']),
+        'hand_revealed_to_opponent': bool(player.get('hand_revealed_to_opponent')),
+        'hand_visible_to_spectators': bool(player.get('hand_visible_to_spectators')),
     }
 
 
-def public_table(table, viewer_index=None):
+def public_table(table, viewer_index=None, viewer_role='player'):
     online = table.get('mode') == 'online'
-    if online and viewer_index in (0, 1):
+    if online and viewer_role == 'spectator':
+        order = (0, 1)
+        active_player = table['active_player']
+        relations = ('spectator', 'spectator')
+    elif online and viewer_index in (0, 1):
         order = (viewer_index, 1 - viewer_index)
         active_player = 0 if table['active_player'] == viewer_index else 1
+        relations = ('self', 'opponent')
     else:
         order = (0, 1)
         active_player = table['active_player']
+        relations = ('self', 'opponent')
+
+    players = []
+    for relative, internal in enumerate(order):
+        player = table['players'][internal]
+        relation = relations[relative]
+        hand_visible = (
+            player.get('hand_visible_to_spectators', False)
+            if relation == 'spectator'
+            else player.get('hand_revealed_to_opponent', False)
+        )
+        players.append(public_player(player, 0 if relation == 'self' else 1, hand_visible))
     return {
         'id': table['id'],
         'room_id': table.get('room_id', table['id']),
         'mode': table.get('mode', 'local'),
         'status': table.get('status', 'ready'),
+        'viewer_role': viewer_role if online else 'local',
+        'spectator_count': len(table.get('spectator_tokens', [])),
         'turn': table['turn'],
         'active_player': active_player,
         # 閲覧者自身を常に player 0 として返し、両端末で手前側を自分にする。
-        'players': [public_player(table['players'][internal], relative) for relative, internal in enumerate(order)],
+        'players': players,
         'log': table['log'],
     }
 
@@ -525,8 +555,17 @@ def online_player_index(table, token):
         return None
 
 
+def online_viewer(table, token):
+    player_index = online_player_index(table, token)
+    if player_index in (0, 1):
+        return {'role': 'player', 'player_index': player_index}
+    if token and token in table.get('spectator_tokens', []):
+        return {'role': 'spectator', 'player_index': None}
+    return None
+
+
 def command_card_ids(command, body):
-    if command in ('move', 'stack', 'flip', 'tap', 'turn_over'):
+    if command in ('move', 'stack', 'flip', 'tap', 'turn_over', 'set_note'):
         return list(body.get('card_ids', []))
     if command == 'swap':
         return [body.get('first'), body.get('second')]
@@ -535,12 +574,12 @@ def command_card_ids(command, body):
 
 def authorize_online_command(table, viewer_index, command, body):
     """通信対戦の相対 player 指定を内部番号へ直し、相手カードの操作を拒否する。"""
-    if table.get('status') != 'ready' and command != 'view_deck':
+    if table.get('status') != 'ready' and command not in ('view_deck', 'set_hand_visibility'):
         return None, '対戦相手が参加するまでカード操作はできません。'
     mapped = dict(body)
     if command == 'end_turn' and table.get('active_player') != viewer_index:
         return None, '自分のターンにだけターンを終了できます。'
-    if command in ('draw', 'view_deck', 'shuffle_deck'):
+    if command in ('draw', 'view_deck', 'shuffle_deck', 'set_hand_visibility'):
         try:
             relative_player = int(body.get('player', 0))
         except (TypeError, ValueError):
@@ -705,6 +744,38 @@ def flattened_stack_items(items):
 
 
 def apply_command(table, command, body):
+    if command == 'set_hand_visibility':
+        try:
+            player_index = int(body.get('player', 0))
+        except (TypeError, ValueError):
+            return False, 'プレイヤー指定が不正です。'
+        if player_index not in (0, 1):
+            return False, 'プレイヤー指定が不正です。'
+        audience = body.get('audience')
+        key = {
+            'opponent': 'hand_revealed_to_opponent',
+            'spectators': 'hand_visible_to_spectators',
+        }.get(audience)
+        if not key:
+            return False, '手札の公開先が不正です。'
+        value = bool(body.get('value'))
+        player = table['players'][player_index]
+        player[key] = value
+        label = '対戦相手' if audience == 'opponent' else '観戦者'
+        log_event(table, '{} が手札を{}へ{}にしました。'.format(player['name'], label, '公開' if value else '非公開'))
+        return True, ''
+
+    if command == 'set_note':
+        items = selected_items(table, body.get('card_ids', []))
+        if len(items) != 1:
+            return False, 'メモを付けるカードを1枚選択してください。'
+        note = str(body.get('note') or '').strip()
+        if len(note) > 120:
+            return False, 'メモは120文字以内にしてください。'
+        items[0]['note'] = note
+        log_event(table, 'カードのメモを{}しました。'.format('更新' if note else '削除'))
+        return True, ''
+
     if command == 'end_turn':
         table['active_player'] = 1 - table['active_player']
         if table['active_player'] == 0:
@@ -961,12 +1032,15 @@ class SimulatorHandler(BaseHTTPRequestHandler):
                     self.send_json({'error': '対戦テーブルが見つかりません。'}, HTTPStatus.NOT_FOUND)
                     return
                 viewer_index = None
+                viewer_role = 'player'
                 if table.get('mode') == 'online':
-                    viewer_index = online_player_index(table, self.player_token(query))
-                    if viewer_index is None:
+                    viewer = online_viewer(table, self.player_token(query))
+                    if viewer is None:
                         self.send_json({'error': 'この部屋への接続情報を確認できません。'}, HTTPStatus.FORBIDDEN)
                         return
-                response = {'table': public_table(table, viewer_index)}
+                    viewer_index = viewer['player_index']
+                    viewer_role = viewer['role']
+                response = {'table': public_table(table, viewer_index, viewer_role)}
             self.send_json(response)
             return
 
@@ -1015,29 +1089,54 @@ class SimulatorHandler(BaseHTTPRequestHandler):
 
         room_join_match = re.fullmatch(r'/api/rooms/(\d{6})/join', path)
         if room_join_match:
-            try:
-                own = load_deck_config(body, main_key='deck', for_start=True)
-            except ValueError as error:
-                self.send_json({'error': str(error)}, HTTPStatus.BAD_REQUEST)
-                return
             room_id = room_join_match.group(1)
             with TABLES_LOCK:
                 table = TABLES.get(room_id)
                 if not table or table.get('mode') != 'online':
                     self.send_json({'error': '部屋番号が見つかりません。'}, HTTPStatus.NOT_FOUND)
                     return
-                if table.get('status') == 'ready' or table['player_tokens'][1]:
-                    self.send_json({'error': 'この部屋にはすでに対戦相手が参加しています。'}, HTTPStatus.CONFLICT)
+                if table.get('status') == 'ready':
+                    spectator_token = uuid.uuid4().hex
+                    table.setdefault('spectator_tokens', []).append(spectator_token)
+                    response = {
+                        'table': public_table(table, None, 'spectator'),
+                        'room_id': room_id,
+                        'player_token': spectator_token,
+                        'viewer_role': 'spectator',
+                    }
+                    self.send_json(response)
                     return
-                table['players'][1] = prepare_player(body.get('player_name', 'プレイヤー2'), own['cards'], own)
-                table['player_tokens'][1] = uuid.uuid4().hex
-                table['status'] = 'ready'
-                log_event(table, '{} が参加しました。対戦を開始できます。'.format(table['players'][1]['name']))
-                response = {
-                    'table': public_table(table, 1),
-                    'room_id': room_id,
-                    'player_token': table['player_tokens'][1],
-                }
+            try:
+                own = load_deck_config(body, main_key='deck', for_start=True)
+            except ValueError as error:
+                self.send_json({'error': str(error)}, HTTPStatus.BAD_REQUEST)
+                return
+            new_player = prepare_player(body.get('player_name', 'プレイヤー2'), own['cards'], own)
+            with TABLES_LOCK:
+                table = TABLES.get(room_id)
+                if not table or table.get('mode') != 'online':
+                    self.send_json({'error': '部屋番号が見つかりません。'}, HTTPStatus.NOT_FOUND)
+                    return
+                if table.get('status') == 'ready':
+                    spectator_token = uuid.uuid4().hex
+                    table.setdefault('spectator_tokens', []).append(spectator_token)
+                    response = {
+                        'table': public_table(table, None, 'spectator'),
+                        'room_id': room_id,
+                        'player_token': spectator_token,
+                        'viewer_role': 'spectator',
+                    }
+                else:
+                    table['players'][1] = new_player
+                    table['player_tokens'][1] = uuid.uuid4().hex
+                    table['status'] = 'ready'
+                    log_event(table, '{} が参加しました。対戦を開始できます。'.format(table['players'][1]['name']))
+                    response = {
+                        'table': public_table(table, 1),
+                        'room_id': room_id,
+                        'player_token': table['player_tokens'][1],
+                        'viewer_role': 'player',
+                    }
             self.send_json(response)
             return
 
@@ -1102,18 +1201,24 @@ class SimulatorHandler(BaseHTTPRequestHandler):
                     return
                 command = body.get('command', body.get('action'))
                 viewer_index = None
+                viewer_role = 'player'
                 command_body = body
                 if table.get('mode') == 'online':
-                    viewer_index = online_player_index(table, self.player_token(parse_qs(parsed.query)))
-                    if viewer_index is None:
+                    viewer = online_viewer(table, self.player_token(parse_qs(parsed.query)))
+                    if viewer is None:
                         self.send_json({'error': 'この部屋への接続情報を確認できません。'}, HTTPStatus.FORBIDDEN)
+                        return
+                    viewer_index = viewer['player_index']
+                    viewer_role = viewer['role']
+                    if viewer_role == 'spectator':
+                        self.send_json({'table': public_table(table, None, 'spectator'), 'error': '観戦者はカードを操作できません。'}, HTTPStatus.FORBIDDEN)
                         return
                     command_body, error = authorize_online_command(table, viewer_index, command, body)
                     if command_body is None:
-                        self.send_json({'table': public_table(table, viewer_index), 'error': error}, HTTPStatus.FORBIDDEN)
+                        self.send_json({'table': public_table(table, viewer_index, viewer_role), 'error': error}, HTTPStatus.FORBIDDEN)
                         return
                 ok, error = apply_command(table, command, command_body)
-                response = {'table': public_table(table, viewer_index)}
+                response = {'table': public_table(table, viewer_index, viewer_role)}
                 if command == 'view_deck':
                     response['deck_view'] = deck_view(table, int(command_body.get('player', 0)), int(command_body.get('count', 40)))
                 if not ok:

@@ -14,6 +14,7 @@ const state = {
   autoHiddenZones: new Set(),
   expandedZones: new Set(),
   mode: 'normal',
+  viewerRole: 'local',
   playerToken: '',
   roomId: '',
   handWindow: null,
@@ -39,11 +40,12 @@ const state = {
 const SPECIAL_ZONES = ['extra', 'gachi', 'abyss'];
 const CARD_ASPECT_RATIO = 650 / 909;
 const EXPANDABLE_ZONES = new Set(['mana', 'graveyard', 'extra', 'abyss']);
-const INSPECTABLE_ZONES = new Set(['mana', 'graveyard', 'extra', 'gachi', 'abyss']);
-const AUTO_INSPECT_ZONES = new Set(['graveyard', 'extra', 'gachi', 'abyss']);
+const INSPECTABLE_ZONES = new Set(['mana', 'graveyard', 'waiting', 'extra', 'gachi', 'abyss']);
+const AUTO_INSPECT_ZONES = new Set(['graveyard', 'waiting', 'extra', 'gachi', 'abyss']);
 const ZONE_VIEW_LABELS = {
   mana: 'マナゾーン',
   graveyard: '墓地',
+  waiting: '待機ゾーン',
   extra: '超次元',
   gachi: 'ガチャレンジ',
   abyss: '深淵',
@@ -174,7 +176,7 @@ function isOnlineMode() {
 }
 
 function canControlPlayer(playerIndex) {
-  return !isOnlineMode() || Number(playerIndex) === 0;
+  return state.viewerRole !== 'spectator' && (!isOnlineMode() || Number(playerIndex) === 0);
 }
 
 function tableApi(path, options = {}) {
@@ -192,6 +194,7 @@ function saveOnlineSession() {
     roomId: state.roomId || state.table.room_id,
     playerToken: state.playerToken,
     mode: state.mode,
+    viewerRole: state.viewerRole,
   }));
 }
 
@@ -199,6 +202,7 @@ function clearOnlineSession() {
   sessionStorage.removeItem(ONLINE_SESSION_KEY);
   state.playerToken = '';
   state.roomId = '';
+  state.viewerRole = 'local';
 }
 
 function updatePlayModeOptions() {
@@ -214,11 +218,13 @@ async function restoreOnlineSession() {
   try { saved = JSON.parse(sessionStorage.getItem(ONLINE_SESSION_KEY) || 'null'); } catch (error) { saved = null; }
   if (!saved?.tableId || !saved?.playerToken) return;
   state.mode = saved.mode || 'online_join';
+  state.viewerRole = saved.viewerRole || 'player';
   state.playerToken = saved.playerToken;
   state.roomId = saved.roomId || saved.tableId;
   try {
     const data = await tableApi(`/api/tables/${encodeURIComponent(saved.tableId)}`);
     state.table = data.table;
+    state.viewerRole = data.table.viewer_role || state.viewerRole;
     $('#setup-screen').classList.add('hidden');
     $('#game-screen').classList.remove('hidden');
     $('#game-screen').classList.remove('remote-mode');
@@ -387,7 +393,7 @@ function setHandWindowTable() {
 
 async function startTable() {
   const error = deckCountError();
-  if (error) { notice(error); return; }
+  if (error && $('#play-mode').value !== 'online_join') { notice(error); return; }
   state.mode = $('#play-mode').value;
   if (state.mode === 'remote') openHandWindow(); else closeHandWindow();
   try {
@@ -402,6 +408,7 @@ async function startTable() {
       state.mode === 'online_join' ? `/api/rooms/${roomCode}/join` : '/api/tables';
     const data = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: online ? playerName : 'プレイヤー', deck: state.deck, ...state.specialDecks, allow_size_exceptions: $('#allow-size-exceptions').checked }) });
     state.table = data.table;
+    state.viewerRole = data.viewer_role || data.table.viewer_role || (online ? 'player' : 'local');
     state.playerToken = data.player_token || '';
     state.roomId = data.room_id || data.table.room_id || data.table.id;
     if (online) saveOnlineSession(); else clearOnlineSession();
@@ -416,6 +423,7 @@ async function startTable() {
     setHandWindowTable();
     renderTable();
     applyDisplaySettings();
+    if (state.viewerRole === 'spectator') notice('この部屋は対戦中のため、観戦者として参加しました。');
   } catch (error) {
     closeHandWindow();
     notice(`テーブル作成に失敗しました: ${error.message}`);
@@ -430,8 +438,9 @@ function itemMarkup(item, options = {}) {
   const className = options.compact ? 'table-card compact' : 'table-card';
   const count = stackCount(item);
   const badge = count ? `<span class="stack-badge">${count}枚重ね</span>` : '';
+  const note = visualItem.note ? `<span class="card-note" title="${escapeHtml(visualItem.note)}">${escapeHtml(visualItem.note)}</span>` : '';
   const controllable = canControlPlayer(options.player);
-  return `<div class="${className} ${selected} ${tapped}" draggable="${controllable}" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${card ? cardArt(card) : cardArt(null, true)}${badge}</div>`;
+  return `<div class="${className} ${selected} ${tapped}" draggable="${controllable}" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${card ? cardArt(card) : cardArt(null, true)}${badge}${note}</div>`;
 }
 
 function zoneKey(playerIndex, zone) {
@@ -560,21 +569,40 @@ function renderTable() {
   syncSpecialZoneVisibility();
   $('#table-id').textContent = isOnlineMode() ? `部屋番号 ${table.room_id || table.id}` : `ROOM ${table.id}`;
   $('#copy-room').classList.toggle('hidden', !isOnlineMode());
-  $('#turn-badge').textContent = table.status === 'waiting' ? '対戦相手を待っています' : table.active_player === 0 ? 'YOUR TURN' : 'OPPONENT TURN';
-  $('#end-turn').disabled = table.status === 'waiting' || (isOnlineMode() && table.active_player !== 0);
+  state.viewerRole = table.viewer_role || state.viewerRole;
+  const spectator = state.viewerRole === 'spectator';
+  $('#turn-badge').textContent = spectator ? '観戦中' : table.status === 'waiting' ? '対戦相手を待っています' : table.active_player === 0 ? 'YOUR TURN' : 'OPPONENT TURN';
+  $('#end-turn').disabled = spectator || table.status === 'waiting' || (isOnlineMode() && table.active_player !== 0);
+  $('#spectator-count').classList.toggle('hidden', !isOnlineMode());
+  $('#spectator-count').textContent = `観戦 ${table.spectator_count || 0}人`;
   $('#opponent-name').textContent = table.players[1].name;
   const selfCounts = table.players[0].counts;
   const opponentCounts = table.players[1].counts;
   $('#opponent-counts').textContent = `手札 ${opponentCounts.hand} / 山札 ${opponentCounts.deck} / シールド ${table.players[1].shield_count}`;
   $('[data-count="self-battle"]').textContent = String(selfCounts.battle);
   $('[data-count="opponent-battle"]').textContent = String(opponentCounts.battle);
-  [0, 1].forEach((playerIndex) => ['deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss'].forEach((zone) => renderZone(playerIndex, zone)));
+  [0, 1].forEach((playerIndex) => ['deck', 'hand', 'mana', 'graveyard', 'waiting', 'battle', 'extra', 'gachi', 'abyss'].forEach((zone) => renderZone(playerIndex, zone)));
   [0, 1].forEach(renderShields);
   updateSpecialZoneLayout();
   $('#selection-count').textContent = `${state.selected.size}枚選択中`;
   $('[data-action="face_down"]').disabled = findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
   $('.opponent-area').classList.toggle('online-readonly', isOnlineMode());
-  $$('[data-command][data-player="1"]').forEach((button) => { button.disabled = isOnlineMode(); button.classList.toggle('hidden', isOnlineMode()); });
+  $('.self-area').classList.toggle('online-readonly', spectator);
+  $('.self-area .battle-label span').textContent = spectator ? `${table.players[0].name}のバトルゾーン` : 'あなたのバトルゾーン';
+  $('.opponent-area .battle-label span').textContent = spectator ? `${table.players[1].name}のバトルゾーン` : '相手のバトルゾーン';
+  $$('[data-command]').forEach((button) => {
+    const unavailable = spectator || (isOnlineMode() && Number(button.dataset.player) === 1);
+    button.disabled = unavailable;
+    if (Number(button.dataset.player) === 1) button.classList.toggle('hidden', isOnlineMode());
+  });
+  $('#hand-visibility-controls').classList.toggle('hidden', !isOnlineMode() || spectator);
+  const selfPlayer = table.players[0];
+  $('#toggle-opponent-hand').textContent = selfPlayer.hand_revealed_to_opponent ? '対戦相手へ非公開' : '対戦相手に公開';
+  $('#toggle-spectator-hand').textContent = selfPlayer.hand_visible_to_spectators ? '観戦者へ非公開' : '観戦者に公開';
+  $$('.actionbar [data-action], #shuffle-deck, #clear-selection').forEach((button) => {
+    if (spectator) button.disabled = true;
+    else if (button.dataset.action !== 'face_down') button.disabled = false;
+  });
   bindCardEvents();
   fitGameField();
   updateStackModeUI();
@@ -739,11 +767,11 @@ function showMenu(event, uid, playerIndex = 0, zone = '') {
   if (!state.selected.has(uid)) selectCard(uid);
   const node = $('#context-menu');
   const inspectButton = INSPECTABLE_ZONES.has(zone) ? '<button data-menu-command="inspect-zone">内容を見る</button><div class="menu-separator"></div>' : '';
-  node.innerHTML = `${inspectButton}<button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
+  const clickedItem = findGameItems(state.table, [uid])[0];
+  node.innerHTML = `${inspectButton}<button data-menu-command="note">${clickedItem?.note ? 'メモを編集する' : 'メモをつける'}</button><button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="waiting">待機ゾーンへ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
   positionContextMenu(node, event.clientX, event.clientY);
   bindSpecialZoneMenu(node, () => positionContextMenu(node, event.clientX, event.clientY));
   updateMoveButtons(node, findGameItems(state.table, state.selected));
-  const clickedItem = findGameItems(state.table, [uid])[0];
   if (cardHomeZone(clickedItem) === 'extra') addTurnOverButton(node, clickedItem, event);
   node.querySelectorAll('[data-menu-command="flip"]').forEach((button) => {
     button.disabled = button.dataset.value === 'false' && findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
@@ -758,6 +786,12 @@ function showMenu(event, uid, playerIndex = 0, zone = '') {
     }
     if (command === 'stack-details') {
       beginStackMode(Array.from(state.selected), playerIndex);
+      return;
+    }
+    if (command === 'note') {
+      node.classList.add('hidden');
+      const note = window.prompt('カードのメモ（空欄で削除・120文字まで）', clickedItem?.note || '');
+      if (note !== null) sendCommand({ command: 'set_note', card_ids: [uid], note });
       return;
     }
     const body = command === 'move' ? { command, card_ids: Array.from(state.selected), zone: button.dataset.zone, position: button.dataset.position || 'append', target_player: 0, keep_face_down: button.dataset.keepFaceDown === 'true' } : { command, card_ids: Array.from(state.selected), value: button.dataset.value === 'true' };
@@ -843,6 +877,10 @@ function bindCardEvents() {
 
 async function sendCommand(body) {
   if (!state.table) return false;
+  if (state.viewerRole === 'spectator') {
+    notice('観戦中はカードを操作できません。');
+    return false;
+  }
   if (isOnlineMode() && body.player != null && Number(body.player) !== 0) {
     notice('通信対戦では自分のカードだけ操作できます。');
     return false;
@@ -899,7 +937,7 @@ function renderInspectorCards() {
   const node = $('#inspector-cards');
   hidePreview();
   node.innerHTML = state.inspectorItems.length
-    ? state.inspectorItems.map((item) => `<button class="inspector-card${state.inspectorSelected.has(item.uid) ? ' selected' : ''}" data-inspector-uid="${escapeHtml(item.uid)}">${item.card ? cardArt(item.card) + `<span class="card-name">${cardName(item.card)}</span>` : cardArt(null, true)}</button>`).join('')
+    ? state.inspectorItems.map((item) => `<button class="inspector-card${state.inspectorSelected.has(item.uid) ? ' selected' : ''}" data-inspector-uid="${escapeHtml(item.uid)}">${item.card ? cardArt(item.card) + `<span class="card-name">${cardName(item.card)}</span>` : cardArt(null, true)}${item.note ? `<span class="card-note" title="${escapeHtml(item.note)}">${escapeHtml(item.note)}</span>` : ''}</button>`).join('')
     : '<p class="empty-state">このゾーンは空です。</p>';
   node.querySelectorAll('[data-inspector-uid]').forEach((button) => {
     const uid = button.dataset.inspectorUid;
@@ -1236,6 +1274,14 @@ $('#load-deck').addEventListener('click', loadSavedDecks);
 $('#start-match').addEventListener('click', startTable);
 $('#fullscreen').addEventListener('click', toggleFullScreen);
 $('#end-turn').addEventListener('click', () => sendCommand({ command: 'end_turn' }));
+$('#toggle-opponent-hand').addEventListener('click', () => {
+  const player = state.table?.players?.[0];
+  if (player) sendCommand({ command: 'set_hand_visibility', player: 0, audience: 'opponent', value: !player.hand_revealed_to_opponent });
+});
+$('#toggle-spectator-hand').addEventListener('click', () => {
+  const player = state.table?.players?.[0];
+  if (player) sendCommand({ command: 'set_hand_visibility', player: 0, audience: 'spectators', value: !player.hand_visible_to_spectators });
+});
 $('#back-setup').addEventListener('click', () => {
   if (state.stackMode?.busy) return;
   pendingStackRequest = null;

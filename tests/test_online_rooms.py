@@ -80,7 +80,60 @@ class OnlineRoomTests(unittest.TestCase):
         self.assertTrue(all(item['card'] is None for item in guest['players'][0]['zones']['gachi']))
         self.assertEqual(host['players'][0]['zones']['extra'][0]['card']['id'], 3)
         self.assertEqual(guest['players'][1]['zones']['extra'][0]['card']['id'], 3)
-        self.call(f'/api/rooms/{room}/join', {'player_name': '3人目', 'deck': [1] * 40}, expected=409)
+        spectator = self.call(f'/api/rooms/{room}/join', {
+            'player_name': '3人目', 'deck': [1], 'gachi': [4],
+        })
+        self.assertEqual(spectator['viewer_role'], 'spectator')
+        self.assertEqual(spectator['table']['viewer_role'], 'spectator')
+        self.assertEqual([player['name'] for player in spectator['table']['players']], ['ホスト', 'ゲスト'])
+        self.call(f'/api/tables/{room}/commands', {'command': 'end_turn'}, token=spectator['player_token'], expected=403)
+
+    def test_hand_visibility_has_separate_opponent_and_spectator_audiences(self):
+        room, host_token, guest_token = self.create_and_join()
+        spectator = self.call(f'/api/rooms/{room}/join', {'player_name': '観戦者'})
+        spectator_token = spectator['player_token']
+        host_hand_uid = self.call(f'/api/tables/{room}', token=host_token)['table']['players'][0]['zones']['hand'][0]['uid']
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_note', 'card_ids': [host_hand_uid], 'note': '非公開メモ',
+        }, token=host_token)
+        self.assertTrue(all(item['card'] is None for item in spectator['table']['players'][0]['zones']['hand']))
+        self.assertTrue(all(item['card'] is None for item in spectator['table']['players'][1]['zones']['hand']))
+
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_hand_visibility', 'player': 0, 'audience': 'spectators', 'value': True,
+        }, token=host_token)
+        spectator_view = self.call(f'/api/tables/{room}', token=spectator_token)['table']
+        guest_view = self.call(f'/api/tables/{room}', token=guest_token)['table']
+        self.assertTrue(all(item['card'] for item in spectator_view['players'][0]['zones']['hand']))
+        self.assertTrue(all(item['card'] is None for item in guest_view['players'][1]['zones']['hand']))
+        self.assertTrue(all(not item['note'] for item in guest_view['players'][1]['zones']['hand']))
+
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_hand_visibility', 'player': 0, 'audience': 'opponent', 'value': True,
+        }, token=host_token)
+        guest_view = self.call(f'/api/tables/{room}', token=guest_token)['table']
+        self.assertTrue(all(item['card'] for item in guest_view['players'][1]['zones']['hand']))
+        self.assertEqual(next(item for item in guest_view['players'][1]['zones']['hand'] if item['uid'] == host_hand_uid)['note'], '非公開メモ')
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_hand_visibility', 'player': 0, 'audience': 'spectators', 'value': False,
+        }, token=host_token)
+        spectator_view = self.call(f'/api/tables/{room}', token=spectator_token)['table']
+        self.assertTrue(all(item['card'] is None for item in spectator_view['players'][0]['zones']['hand']))
+
+    def test_waiting_zone_and_shared_card_note(self):
+        room, host_token, guest_token = self.create_and_join()
+        host = self.call(f'/api/tables/{room}', token=host_token)['table']
+        item = host['players'][0]['zones']['hand'][0]
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'move', 'card_ids': [item['uid']], 'zone': 'waiting', 'target_player': 0,
+        }, token=host_token)
+        updated = self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_note', 'card_ids': [item['uid']], 'note': '次のターンに使う',
+        }, token=host_token)['table']
+        self.assertEqual(updated['players'][0]['zones']['waiting'][0]['note'], '次のターンに使う')
+        guest = self.call(f'/api/tables/{room}', token=guest_token)['table']
+        self.assertEqual(guest['players'][1]['zones']['waiting'][0]['note'], '次のターンに使う')
+        self.assertEqual(guest['players'][1]['zones']['waiting'][0]['card']['id'], 1)
 
     def test_own_move_syncs_and_opponent_operations_are_rejected(self):
         room, host_token, guest_token = self.create_and_join()

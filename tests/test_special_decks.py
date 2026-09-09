@@ -120,7 +120,7 @@ class SpecialDeckTests(unittest.TestCase):
 
     def test_all_forbidden_destinations_are_atomic_including_stacks(self):
         for home in ('extra', 'gachi'):
-            for target in ('deck', 'hand', 'mana', 'graveyard', 'shields', 'gachi' if home == 'extra' else 'extra'):
+            for target in ('deck', 'hand', 'mana', 'graveyard', 'waiting', 'shields', 'gachi' if home == 'extra' else 'extra'):
                 table = self.table()
                 player = table['players'][0]
                 special = player['zones'][home][0]

@@ -16,11 +16,12 @@ function handEscape(value) {
 
 function handCardMarkup(item) {
   const selected = handState.selected.has(item.uid) ? ' selected' : '';
-  if (!item.face_up || !item.card) return `<button class="hand-card${selected}" data-uid="${handEscape(item.uid)}"><span class="card-back ${handState.backStyle === 'dummy' ? 'dummy-back' : ''}">DM</span></button>`;
+  const note = item.note ? `<span class="card-note" title="${handEscape(item.note)}">${handEscape(item.note)}</span>` : '';
+  if (!item.face_up || !item.card) return `<button class="hand-card${selected}" data-uid="${handEscape(item.uid)}"><span class="card-back ${handState.backStyle === 'dummy' ? 'dummy-back' : ''}">DM</span>${note}</button>`;
   const image = item.card.image_url
     ? `<img src="${handEscape(item.card.image_url)}" alt="" onerror="this.remove()">`
     : `<span class="card-placeholder">${handEscape((item.card.civiltxt || '◇').slice(0, 1))}</span>`;
-  return `<button class="hand-card${selected}" data-uid="${handEscape(item.uid)}"><span class="card-face">${image}</span></button>`;
+  return `<button class="hand-card${selected}" data-uid="${handEscape(item.uid)}"><span class="card-face">${image}</span>${note}</button>`;
 }
 
 function handSignature(hand) {
@@ -30,6 +31,7 @@ function handSignature(hand) {
     Boolean(item.tapped),
     item.card?.id || null,
     item.card?.image_url || null,
+    item.note || '',
   ]));
 }
 
@@ -194,13 +196,18 @@ function showHandMenu(event, uid) {
     renderHand();
   }
   const menu = hand$('#hand-menu');
-  menu.innerHTML = `<button data-hand-stack>カードを重ねる ▶</button><button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("hand-special-zones")}<button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
+  const item = handState.hand.find((candidate) => candidate.uid === uid);
+  menu.innerHTML = `<button data-hand-note>${item?.note ? 'メモを編集する' : 'メモをつける'}</button><button data-hand-stack>カードを重ねる ▶</button><button data-zone="mana">マナへ</button><button data-zone="graveyard">墓地へ</button><button data-zone="waiting">待機ゾーンへ</button><button data-zone="battle">バトルゾーンへ</button><button data-zone="shields">シールドゾーンへ</button><button data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("hand-special-zones")}<button data-zone="deck" data-position="top">山札の一番上へ</button><button data-zone="deck" data-position="bottom">山札の一番下へ</button><div class="menu-separator"></div><button data-command="tap" data-value="true">タップする</button><button data-command="tap" data-value="false">アンタップする</button><button data-command="flip" data-value="false">裏向きにする</button>`;
   positionHandMenu(menu, event);
   bindSpecialZoneMenu(menu, () => positionHandMenu(menu, event));
   updateMoveButtons(menu, handState.hand.filter((item) => handState.selected.has(item.uid)));
   menu.querySelector('[data-hand-stack]').addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
     beginHandStackMode();
+  });
+  menu.querySelector('[data-hand-note]').addEventListener('click', () => {
+    const note = window.prompt('カードのメモ（空欄で削除・120文字まで）', item?.note || '');
+    if (note !== null) sendHandCommand({ command: 'set_note', card_ids: [uid], note });
   });
   menu.querySelectorAll('[data-zone]').forEach((button) => button.addEventListener('click', () => sendHandCommand({ command: 'move', card_ids: Array.from(handState.selected), zone: button.dataset.zone, position: button.dataset.position || 'append', target_player: 0 })));
   menu.querySelectorAll('[data-command]').forEach((button) => button.addEventListener('click', () => sendHandCommand({ command: button.dataset.command, card_ids: Array.from(handState.selected), value: button.dataset.value === 'true' })));
