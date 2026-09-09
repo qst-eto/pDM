@@ -59,6 +59,12 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(
 .deck-builder .setup-footer { flex-direction:column; align-items:stretch; }
 .setup-start-options { flex-wrap:wrap; }
 .setup-start-options label, .setup-start-options .button { white-space:nowrap; }
+.network-options { display:flex; align-items:flex-end; gap:8px; }
+.network-options label { color:var(--muted); font-size:10px; }
+.network-options input { display:block; width:135px; margin-top:4px; padding:8px; }
+#room-code { width:88px; letter-spacing:.18em; }
+.online-readonly { opacity:.72; }
+.online-readonly [draggable="true"] { cursor:default; }
 .context-menu button:disabled, .inspector-actions button:disabled { opacity:.35; cursor:not-allowed; background:transparent; }
 .empty-state { color:var(--muted); font-size:12px; }
 .setup-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:18px; border-top:1px solid var(--line); padding-top:15px; }

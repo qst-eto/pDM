@@ -14,6 +14,8 @@ const state = {
   autoHiddenZones: new Set(),
   expandedZones: new Set(),
   mode: 'normal',
+  playerToken: '',
+  roomId: '',
   handWindow: null,
   stackMode: null,
   displaySettings: {
@@ -165,6 +167,67 @@ function addToDeck(cardId) {
   if (cards.length >= limit) { notice(`この枠は${limit}枚までです。`); return; }
   cards.push(cardId);
   renderDeck();
+}
+
+function isOnlineMode() {
+  return state.mode === 'online_host' || state.mode === 'online_join' || state.table?.mode === 'online';
+}
+
+function canControlPlayer(playerIndex) {
+  return !isOnlineMode() || Number(playerIndex) === 0;
+}
+
+function tableApi(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (isOnlineMode() && state.playerToken) headers.set('X-Player-Token', state.playerToken);
+  return api(path, { ...options, headers });
+}
+
+const ONLINE_SESSION_KEY = 'dm-table-forge-online-session';
+
+function saveOnlineSession() {
+  if (!isOnlineMode() || !state.table || !state.playerToken) return;
+  sessionStorage.setItem(ONLINE_SESSION_KEY, JSON.stringify({
+    tableId: state.table.id,
+    roomId: state.roomId || state.table.room_id,
+    playerToken: state.playerToken,
+    mode: state.mode,
+  }));
+}
+
+function clearOnlineSession() {
+  sessionStorage.removeItem(ONLINE_SESSION_KEY);
+  state.playerToken = '';
+  state.roomId = '';
+}
+
+function updatePlayModeOptions() {
+  const mode = $('#play-mode').value;
+  const online = mode === 'online_host' || mode === 'online_join';
+  $('#network-options').classList.toggle('hidden', !online);
+  $('#room-code-field').classList.toggle('hidden', mode !== 'online_join');
+  $('#start-match').textContent = mode === 'online_host' ? '部屋を作る' : mode === 'online_join' ? '部屋に参加' : 'フィールドへ入る';
+}
+
+async function restoreOnlineSession() {
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem(ONLINE_SESSION_KEY) || 'null'); } catch (error) { saved = null; }
+  if (!saved?.tableId || !saved?.playerToken) return;
+  state.mode = saved.mode || 'online_join';
+  state.playerToken = saved.playerToken;
+  state.roomId = saved.roomId || saved.tableId;
+  try {
+    const data = await tableApi(`/api/tables/${encodeURIComponent(saved.tableId)}`);
+    state.table = data.table;
+    $('#setup-screen').classList.add('hidden');
+    $('#game-screen').classList.remove('hidden');
+    $('#game-screen').classList.remove('remote-mode');
+    $('#hand-window-toggle').classList.add('hidden');
+    renderTable();
+    applyDisplaySettings();
+  } catch (error) {
+    clearOnlineSession();
+  }
 }
 
 function deckSection(section) { return section === 'deck' ? state.deck : state.specialDecks[section]; }
@@ -325,11 +388,23 @@ function setHandWindowTable() {
 async function startTable() {
   const error = deckCountError();
   if (error) { notice(error); return; }
-  state.mode = $('#play-mode').value === 'remote' ? 'remote' : 'normal';
+  state.mode = $('#play-mode').value;
   if (state.mode === 'remote') openHandWindow(); else closeHandWindow();
   try {
-    const data = await api('/api/tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: 'プレイヤー', deck: state.deck, ...state.specialDecks, allow_size_exceptions: $('#allow-size-exceptions').checked }) });
+    const online = isOnlineMode();
+    const playerName = ($('#player-name').value || 'プレイヤー').trim();
+    const roomCode = $('#room-code').value.replace(/\D/g, '');
+    if (state.mode === 'online_join' && !/^\d{6}$/.test(roomCode)) {
+      notice('6桁の部屋番号を入力してください。');
+      return;
+    }
+    const path = state.mode === 'online_host' ? '/api/rooms' :
+      state.mode === 'online_join' ? `/api/rooms/${roomCode}/join` : '/api/tables';
+    const data = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_name: online ? playerName : 'プレイヤー', deck: state.deck, ...state.specialDecks, allow_size_exceptions: $('#allow-size-exceptions').checked }) });
     state.table = data.table;
+    state.playerToken = data.player_token || '';
+    state.roomId = data.room_id || data.table.room_id || data.table.id;
+    if (online) saveOnlineSession(); else clearOnlineSession();
     state.selected.clear();
     state.hiddenZones.clear();
     state.autoHiddenZones.clear();
@@ -355,7 +430,8 @@ function itemMarkup(item, options = {}) {
   const className = options.compact ? 'table-card compact' : 'table-card';
   const count = stackCount(item);
   const badge = count ? `<span class="stack-badge">${count}枚重ね</span>` : '';
-  return `<div class="${className} ${selected} ${tapped}" draggable="true" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${card ? cardArt(card) : cardArt(null, true)}${badge}</div>`;
+  const controllable = canControlPlayer(options.player);
+  return `<div class="${className} ${selected} ${tapped}" draggable="${controllable}" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${card ? cardArt(card) : cardArt(null, true)}${badge}</div>`;
 }
 
 function zoneKey(playerIndex, zone) {
@@ -482,8 +558,10 @@ function renderTable() {
   if (!table) return;
   stackBridge.connect();
   syncSpecialZoneVisibility();
-  $('#table-id').textContent = `ROOM ${table.id}`;
-  $('#turn-badge').textContent = table.active_player === 0 ? 'YOUR TURN' : 'OPPONENT TURN';
+  $('#table-id').textContent = isOnlineMode() ? `部屋番号 ${table.room_id || table.id}` : `ROOM ${table.id}`;
+  $('#copy-room').classList.toggle('hidden', !isOnlineMode());
+  $('#turn-badge').textContent = table.status === 'waiting' ? '対戦相手を待っています' : table.active_player === 0 ? 'YOUR TURN' : 'OPPONENT TURN';
+  $('#end-turn').disabled = table.status === 'waiting' || (isOnlineMode() && table.active_player !== 0);
   $('#opponent-name').textContent = table.players[1].name;
   const selfCounts = table.players[0].counts;
   const opponentCounts = table.players[1].counts;
@@ -495,6 +573,8 @@ function renderTable() {
   updateSpecialZoneLayout();
   $('#selection-count').textContent = `${state.selected.size}枚選択中`;
   $('[data-action="face_down"]').disabled = findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
+  $('.opponent-area').classList.toggle('online-readonly', isOnlineMode());
+  $$('[data-command][data-player="1"]').forEach((button) => { button.disabled = isOnlineMode(); button.classList.toggle('hidden', isOnlineMode()); });
   bindCardEvents();
   fitGameField();
   updateStackModeUI();
@@ -568,6 +648,7 @@ function publishStackMode(message = '') {
 }
 
 function beginStackMode(cardIds, player = 0, requestId = null) {
+  if (!canControlPlayer(player)) return false;
   const mode = { cardIds: [...new Set(cardIds)], player, requestId, position: 'above', busy: false };
   if (!stackSourcesExist(mode)) {
     notice('同じプレイヤーのカードを選択してください。');
@@ -654,6 +735,7 @@ const stackPanel = createStackModePanel($('#stack-mode-bar'), setStackPosition, 
 const stackBridge = createStackModeBridge('field', () => state.table?.id, () => state.handWindow, receiveHandStackMode);
 
 function showMenu(event, uid, playerIndex = 0, zone = '') {
+  if (!canControlPlayer(playerIndex)) return;
   if (!state.selected.has(uid)) selectCard(uid);
   const node = $('#context-menu');
   const inspectButton = INSPECTABLE_ZONES.has(zone) ? '<button data-menu-command="inspect-zone">内容を見る</button><div class="menu-separator"></div>' : '';
@@ -706,10 +788,15 @@ function bindCardEvents() {
         renderTable();
         return;
       }
+      if (!canControlPlayer(player)) return;
       selectCard(node.dataset.uid, event.ctrlKey || event.metaKey);
     });
-    node.addEventListener('contextmenu', (event) => { event.preventDefault(); showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone); });
+    node.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      if (canControlPlayer(node.dataset.player)) showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone);
+    });
     node.addEventListener('wheel', (event) => {
+      if (!canControlPlayer(node.dataset.player)) return;
       event.preventDefault();
       const player = Number(node.dataset.player);
       const item = findTableItem(player, node.dataset.zone, node.dataset.uid);
@@ -717,13 +804,18 @@ function bindCardEvents() {
     }, { passive: false });
     node.addEventListener('pointerenter', () => { const item = findTableItem(Number(node.dataset.player), node.dataset.zone, node.dataset.uid); showPreview(item && stackVisualItem(item).card); });
     node.addEventListener('pointerleave', hidePreview);
-    node.addEventListener('dragstart', (event) => { event.dataTransfer.setData('text/plain', node.dataset.uid); event.dataTransfer.effectAllowed = 'move'; });
+    node.addEventListener('dragstart', (event) => {
+      if (!canControlPlayer(node.dataset.player)) { event.preventDefault(); return; }
+      event.dataTransfer.setData('text/plain', node.dataset.uid); event.dataTransfer.effectAllowed = 'move';
+    });
     node.addEventListener('drop', (event) => {
+      if (!canControlPlayer(node.dataset.player)) return;
       event.preventDefault(); event.stopPropagation();
       const from = event.dataTransfer.getData('text/plain');
       if (!from || from === node.dataset.uid) return;
       const source = $(`.table-card[data-uid="${CSS.escape(from)}"]`);
-      if (source?.dataset.zone === node.dataset.zone && source?.dataset.player === node.dataset.player) sendCommand({ command: 'swap', first: from, second: node.dataset.uid });
+      if (!source || !canControlPlayer(source.dataset.player)) return;
+      if (source.dataset.zone === node.dataset.zone && source.dataset.player === node.dataset.player) sendCommand({ command: 'swap', first: from, second: node.dataset.uid });
       else sendCommand({ command: 'move', card_ids: [from], zone: node.dataset.zone, target_player: Number(node.dataset.player) });
     });
   });
@@ -735,8 +827,12 @@ function bindCardEvents() {
       if (item && stackCount(item)) openStackInspector(item, player, 'mana');
       else toggleZone(node.closest('.zone'));
     });
-    node.addEventListener('contextmenu', (event) => { event.preventDefault(); showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone); });
+    node.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      if (canControlPlayer(node.dataset.player)) showMenu(event, node.dataset.uid, Number(node.dataset.player), node.dataset.zone);
+    });
     node.addEventListener('wheel', (event) => {
+      if (!canControlPlayer(node.dataset.player)) return;
       event.preventDefault();
       const player = Number(node.dataset.player);
       const item = findTableItem(player, 'mana', node.dataset.uid);
@@ -747,6 +843,10 @@ function bindCardEvents() {
 
 async function sendCommand(body) {
   if (!state.table) return false;
+  if (isOnlineMode() && body.player != null && Number(body.player) !== 0) {
+    notice('通信対戦では自分のカードだけ操作できます。');
+    return false;
+  }
   if (body.command === 'move' && !cardsCanMove(findGameItems(state.table, body.card_ids || []), body.zone)) {
     notice('このカードはそのゾーンへ移動できません。');
     return false;
@@ -756,7 +856,7 @@ async function sendCommand(body) {
     return false;
   }
   try {
-    const data = await api(`/api/tables/${state.table.id}/commands`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await tableApi(`/api/tables/${state.table.id}/commands`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     state.table = data.table;
     if (body.command === 'move' && SPECIAL_ZONES.includes(body.zone)) state.hiddenZones.delete(body.zone);
     state.selected.clear();
@@ -808,6 +908,7 @@ function renderInspectorCards() {
     button.addEventListener('pointerenter', preview);
     button.addEventListener('focus', preview);
     button.addEventListener('click', () => {
+      if (!canControlPlayer(state.inspectorTargetPlayer)) return;
       if (state.inspectorSelected.has(uid)) state.inspectorSelected.delete(uid); else state.inspectorSelected.add(uid);
       button.classList.toggle('selected', state.inspectorSelected.has(uid));
       button.setAttribute('aria-pressed', String(state.inspectorSelected.has(uid)));
@@ -815,6 +916,7 @@ function renderInspectorCards() {
       preview();
     });
     button.addEventListener('contextmenu', (event) => {
+      if (!canControlPlayer(state.inspectorTargetPlayer)) return;
       const item = state.inspectorItems.find((item) => item.uid === uid);
       if (cardHomeZone(item) !== 'extra') return;
       event.preventDefault();
@@ -829,6 +931,9 @@ function renderInspectorCards() {
 
 function updateInspectorActions() {
   updateMoveButtons($('#deck-inspector'), findGameItems(state.table, inspectorCardIds()));
+  if (!canControlPlayer(state.inspectorTargetPlayer)) {
+    $$('#deck-inspector [data-inspector-move], #deck-inspector [data-inspector-position], #deck-inspector [data-inspector-shuffle]').forEach((button) => { button.disabled = true; });
+  }
 }
 
 function addTurnOverButton(menu, item, event) {
@@ -1060,6 +1165,7 @@ function updateRangeSelection(event) {
   const top = Math.min(rangeSelection.startY, event.clientY);
   const bottom = Math.max(rangeSelection.startY, event.clientY);
   $$('.table-card').forEach((node) => {
+    if (!canControlPlayer(node.dataset.player)) return;
     const rect = node.getBoundingClientRect();
     const intersects = rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom;
     if (intersects) state.selected.add(node.dataset.uid); else state.selected.delete(node.dataset.uid);
@@ -1123,15 +1229,20 @@ $('#clear-deck').addEventListener('click', () => { state.deck = []; state.specia
 $('#deck-target').addEventListener('change', (event) => setDeckSection(event.target.value));
 $$('[data-deck-section]').forEach((button) => button.addEventListener('click', () => setDeckSection(button.dataset.deckSection)));
 $('#allow-size-exceptions').addEventListener('change', renderDeck);
+$('#play-mode').addEventListener('change', updatePlayModeOptions);
+$('#room-code').addEventListener('input', (event) => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 6); });
 $('#save-deck').addEventListener('click', saveDeckToServer);
 $('#load-deck').addEventListener('click', loadSavedDecks);
 $('#start-match').addEventListener('click', startTable);
 $('#fullscreen').addEventListener('click', toggleFullScreen);
+$('#end-turn').addEventListener('click', () => sendCommand({ command: 'end_turn' }));
 $('#back-setup').addEventListener('click', () => {
   if (state.stackMode?.busy) return;
   pendingStackRequest = null;
   endStackMode();
   closeHandWindow();
+  clearOnlineSession();
+  state.table = null;
   $('#game-screen').classList.add('hidden');
   $('#game-screen').classList.remove('remote-mode');
   $('#hand-window-toggle').classList.add('hidden');
@@ -1185,18 +1296,26 @@ $$('.zone').forEach((node) => node.addEventListener('click', (event) => {
 }));
 $('#field').addEventListener('dragover', (event) => {
   const zone = event.target.closest('.zone');
-  if (!zone) return;
+  if (!zone || !canControlPlayer(zone.dataset.player)) return;
   // A drag's payload is not readable during dragover; retain its UID from dragstart.
   const source = $('#field .drag-source');
-  if (source && cardsCanMove(findGameItems(state.table, [source.dataset.uid]), zone.dataset.zone)) {
+  if (source && canControlPlayer(source.dataset.player) && cardsCanMove(findGameItems(state.table, [source.dataset.uid]), zone.dataset.zone)) {
     event.preventDefault(); event.dataTransfer.dropEffect = 'move';
   } else event.dataTransfer.dropEffect = 'none';
+});
+$('#copy-room').addEventListener('click', async () => {
+  const room = state.roomId || state.table?.room_id || state.table?.id;
+  if (!room) return;
+  try {
+    await navigator.clipboard.writeText(String(room));
+    notice(`部屋番号 ${room} をコピーしました。`);
+  } catch (error) { notice(`部屋番号は ${room} です。`); }
 });
 $('#field').addEventListener('dragstart', (event) => event.target.closest('.table-card')?.classList.add('drag-source'));
 $('#field').addEventListener('dragend', () => $$('.drag-source').forEach((node) => node.classList.remove('drag-source')));
 $('#field').addEventListener('drop', (event) => {
   const zone = event.target.closest('.zone');
-  if (!zone) return;
+  if (!zone || !canControlPlayer(zone.dataset.player)) return;
   event.preventDefault();
   const uid = event.dataTransfer.getData('text/plain');
   if (uid) sendCommand({ command: 'move', card_ids: [uid], zone: zone.dataset.zone, target_player: Number(zone.dataset.player) });
@@ -1257,17 +1376,21 @@ const fieldSizeObserver = new ResizeObserver(() => {
 });
 $$('.field-board .zone').forEach((zone) => fieldSizeObserver.observe(zone));
 loadDisplaySettings();
+updatePlayModeOptions();
 loadMeta();
 loadCards();
 loadSavedDecks();
 renderDeck();
+restoreOnlineSession();
 window.setInterval(async () => {
   if (!state.table || document.hidden) return;
   try {
-    const data = await api(`/api/tables/${state.table.id}`);
+    const previousStatus = state.table.status;
+    const data = await tableApi(`/api/tables/${state.table.id}`);
     if (tableStateChanged(data.table)) {
       state.table = data.table;
       renderTable();
+      if (previousStatus === 'waiting' && data.table.status === 'ready') notice(`${data.table.players[1].name} が参加しました。対戦を始められます。`);
     }
   } catch (error) {
     // 一時的な通信失敗は次回のポーリングで再試行する。
