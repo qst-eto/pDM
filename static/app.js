@@ -6,6 +6,7 @@ const state = {
   deckTarget: 'deck',
   table: null,
   selected: new Set(),
+  pinnedPreviewUid: '',
   inspectorSelected: new Set(),
   inspectorItems: [],
   inspectorZone: '',
@@ -112,7 +113,7 @@ function cardArt(card, back = false) {
   const image = card && card.image_url
     ? `<img class="card-image" loading="lazy" src="${escapeHtml(card.image_url)}" alt="" onerror="this.remove()">`
     : '';
-  return `<div class="card-art ${civilClass(card && card.civiltxt)}">${image}<span class="cost">${escapeHtml(card && card.costtxt || '—')}</span><span class="art-mark">${escapeHtml((card && card.civiltxt || '◇').slice(0, 1))}</span></div>`;
+  return `<div class="card-art ${civilClass(card && card.civiltxt)}">${image}<span class="art-mark">${escapeHtml((card && card.civiltxt || '◇').slice(0, 1))}</span></div>`;
 }
 
 function cardName(card) { return escapeHtml(card && card.cardname || '裏向きのカード'); }
@@ -154,7 +155,7 @@ async function loadCards() {
 function renderLibrary() {
   const node = $('#library');
   if (!state.cards.length) { node.innerHTML = '<p class="empty-state">該当するカードがありません。</p>'; return; }
-  node.innerHTML = state.cards.map((card) => `<button class="library-card" data-add-card="${card.id}">${cardArt(card)}<span class="card-name">${cardName(card)}</span><span class="card-meta">${escapeHtml(card.civiltxt || '文明不明')} / ${escapeHtml(card.typetxt || '')}</span></button>`).join('');
+  node.innerHTML = state.cards.map((card) => `<button class="library-card" data-add-card="${card.id}">${cardArt(card)}${card.image_options?.length > 1 ? `<span class="image-variant-badge">画像${card.image_options.length}種</span>` : ''}<span class="card-name">${cardName(card)}</span><span class="card-meta">${escapeHtml(card.civiltxt || '文明不明')} / ${escapeHtml(card.typetxt || '')}</span></button>`).join('');
   $$('#library [data-add-card]').forEach((button) => button.addEventListener('click', () => addToDeck(Number(button.dataset.addCard))));
 }
 
@@ -167,7 +168,7 @@ function addToDeck(cardId) {
   const cards = deckSection(section);
   const limit = section === 'deck' ? 40 : $('#allow-size-exceptions').checked || section === 'battle' ? 200 : section === 'extra' ? 8 : 12;
   if (cards.length >= limit) { notice(`この枠は${limit}枚までです。`); return; }
-  cards.push(cardId);
+  cards.push({ id: cardId, image_index: 0 });
   renderDeck();
 }
 
@@ -238,9 +239,28 @@ async function restoreOnlineSession() {
 
 function deckSection(section) { return section === 'deck' ? state.deck : state.specialDecks[section]; }
 
+function deckEntryId(entry) {
+  return Number(entry && typeof entry === 'object' ? entry.id : entry);
+}
+
+function deckEntryImageIndex(entry) {
+  return Math.max(0, Number(entry && typeof entry === 'object' ? entry.image_index : 0) || 0);
+}
+
+function deckEntry(entry) {
+  return { id: deckEntryId(entry), image_index: deckEntryImageIndex(entry) };
+}
+
+function cardForDeckEntry(entry) {
+  const card = state.cardCache.get(deckEntryId(entry)) || { cardname: '読み込み中', image_options: [] };
+  const index = Math.min(deckEntryImageIndex(entry), Math.max(0, (card.image_options || []).length - 1));
+  const option = card.image_options?.find((candidate) => Number(candidate.index) === index);
+  return { ...card, image_index: index, image_url: option?.image_url || card.image_url };
+}
+
 function deckCountError() {
   if ($('#allow-size-exceptions').checked) return '';
-  const starts = state.specialDecks.battle.map((id) => state.cardCache.get(id)?.home_zone);
+  const starts = state.specialDecks.battle.map((entry) => state.cardCache.get(deckEntryId(entry))?.home_zone);
   const extra = state.specialDecks.extra.length + starts.filter((zone) => zone === 'extra').length;
   const gr = state.specialDecks.gachi.length + starts.filter((zone) => zone === 'gachi').length;
   if (extra > 8) return '超次元は8枚以下にしてください（開始時バトル分を含む）。';
@@ -270,11 +290,39 @@ function renderDeck() {
     $(`[data-deck-section="${section}"]`).setAttribute('aria-selected', String(section === state.deckTarget));
     const node = $(section === 'deck' ? '#deck-list' : `#${section}-deck-list`);
     node.className = `deck-list${section === state.deckTarget ? '' : ' hidden'}${cards.length ? '' : ' empty-state'}`;
-    node.innerHTML = cards.length ? cards.map((id, index) => {
-      const card = state.cardCache.get(id) || { cardname: '読み込み中' };
-      return `<span class="deck-chip"><span>${index + 1}. ${cardName(card)}<br><small>${escapeHtml(card.packname || '')}</small></span><button data-remove-deck="${index}" aria-label="削除">×</button></span>`;
+    const groups = [];
+    for (const entry of cards.map(deckEntry)) {
+      let group = groups.find((candidate) => candidate.id === entry.id);
+      if (!group) { group = { id: entry.id, entries: [] }; groups.push(group); }
+      group.entries.push(entry);
+    }
+    node.innerHTML = cards.length ? groups.map((group) => {
+      const entry = group.entries[0];
+      const card = cardForDeckEntry(entry);
+      const imageOptions = card.image_options || [];
+      const imageSelect = imageOptions.length > 1
+        ? `<label class="deck-image-choice">画像<select data-deck-image-card="${group.id}">${imageOptions.map((option, index) => `<option value="${option.index}"${Number(option.index) === card.image_index ? ' selected' : ''}>画像 ${index + 1}</option>`).join('')}</select></label>` : '';
+      return `<article class="deck-chip" data-deck-card="${group.id}"><div class="deck-card-image">${cardArt(card)}<strong class="deck-card-quantity">×${group.entries.length}</strong></div><div class="deck-card-info"><span class="card-name">${cardName(card)}</span><small>${escapeHtml(card.packname || '')}</small>${imageSelect}<div class="deck-card-stepper"><button data-remove-deck="${group.id}" aria-label="1枚減らす">−</button><span>${group.entries.length}枚</span><button data-add-deck-copy="${group.id}" aria-label="1枚増やす">＋</button></div></div></article>`;
     }).join('') : 'カードライブラリからカードを追加してください。';
-    node.querySelectorAll('[data-remove-deck]').forEach((button) => button.addEventListener('click', () => { cards.splice(Number(button.dataset.removeDeck), 1); renderDeck(); }));
+    node.querySelectorAll('[data-remove-deck]').forEach((button) => button.addEventListener('click', () => {
+      const id = Number(button.dataset.removeDeck);
+      const index = cards.map(deckEntryId).lastIndexOf(id);
+      if (index >= 0) cards.splice(index, 1);
+      renderDeck();
+    }));
+    node.querySelectorAll('[data-add-deck-copy]').forEach((button) => button.addEventListener('click', () => {
+      const id = Number(button.dataset.addDeckCopy);
+      const sample = cards.find((entry) => deckEntryId(entry) === id);
+      const limit = section === 'deck' ? 40 : $('#allow-size-exceptions').checked || section === 'battle' ? 200 : section === 'extra' ? 8 : 12;
+      if (cards.length >= limit) { notice(`この枠は${limit}枚までです。`); return; }
+      cards.push(deckEntry(sample));
+      renderDeck();
+    }));
+    node.querySelectorAll('[data-deck-image-card]').forEach((select) => select.addEventListener('change', () => {
+      const id = Number(select.dataset.deckImageCard);
+      cards.forEach((entry, index) => { if (deckEntryId(entry) === id) cards[index] = { id, image_index: Number(select.value) }; });
+      renderDeck();
+    }));
   }
   const error = deckCountError();
   $('#deck-validation').textContent = error;
@@ -283,8 +331,8 @@ function renderDeck() {
 
 async function resolveDeckEntries(entries) {
   if (!Array.isArray(entries)) throw new Error('カード一覧が見つかりません。');
-  const candidateIds = entries.map((entry) => (entry && typeof entry === 'object' ? entry.id : entry))
-    .map((id) => Number(id))
+  const normalized = entries.slice(0, 200).map(deckEntry);
+  const candidateIds = normalized.map((entry) => entry.id)
     .filter((id) => Number.isInteger(id) && id > 0)
     .slice(0, 200);
 
@@ -300,7 +348,7 @@ async function resolveDeckEntries(entries) {
   }));
   const validCards = resolved.filter(Boolean);
   if (validCards.length !== entries.length) throw new Error('DBに存在しないカードIDが含まれています。');
-  return validCards.map(({ id }) => id);
+  return validCards.map(({ id }, index) => ({ id, image_index: normalized[index].image_index }));
 }
 
 async function saveDeckToServer() {
@@ -325,11 +373,11 @@ async function loadSavedDeck(deckId) {
   try {
     const data = await api(`/api/decks/${encodeURIComponent(deckId)}`);
     const sections = await Promise.all(['cards', 'extra', 'gachi', 'battle'].map((key) => resolveDeckEntries(data.deck[key] || [])));
-    state.deck = sections[0].filter((id) => !state.cardCache.get(id)?.home_zone);
+    state.deck = sections[0].filter((entry) => !state.cardCache.get(deckEntryId(entry))?.home_zone);
     state.specialDecks = { extra: sections[1], gachi: sections[2], battle: sections[3] };
-    for (const id of sections[0]) {
-      const home = state.cardCache.get(id)?.home_zone;
-      if (home) state.specialDecks[home].push(id);
+    for (const entry of sections[0]) {
+      const home = state.cardCache.get(deckEntryId(entry))?.home_zone;
+      if (home) state.specialDecks[home].push(entry);
     }
     $('#allow-size-exceptions').checked = data.deck.allow_size_exceptions === true;
     renderDeck();
@@ -424,6 +472,7 @@ async function startTable() {
     renderTable();
     applyDisplaySettings();
     if (state.viewerRole === 'spectator') notice('この部屋は対戦中のため、観戦者として参加しました。');
+    else if (state.table.start_message) notice(state.table.start_message);
   } catch (error) {
     closeHandWindow();
     notice(`テーブル作成に失敗しました: ${error.message}`);
@@ -439,8 +488,11 @@ function itemMarkup(item, options = {}) {
   const count = stackCount(item);
   const badge = count ? `<span class="stack-badge">${count}枚重ね</span>` : '';
   const note = visualItem.note ? `<span class="card-note" title="${escapeHtml(visualItem.note)}">${escapeHtml(visualItem.note)}</span>` : '';
+  const privacy = visualItem.private_to_opponent ? '<span class="private-card-badge">相手に非公開</span>' : '';
+  const shown = visualItem.shown_to_opponent ? '<span class="shown-card-badge">相手に公開中</span>' : '';
+  const peeks = stackPeekMarkup(item, options.hideCard);
   const controllable = canControlPlayer(options.player);
-  return `<div class="${className} ${selected} ${tapped}" draggable="${controllable}" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${card ? cardArt(card) : cardArt(null, true)}${badge}${note}</div>`;
+  return `<div class="${className} ${selected} ${tapped}" draggable="${controllable}" data-uid="${item.uid}" data-player="${options.player}" data-zone="${options.zone}" data-visible-card="${card ? 'true' : 'false'}">${peeks}${card ? cardArt(card) : cardArt(null, true)}${badge}${note}${privacy}${shown}</div>`;
 }
 
 function zoneKey(playerIndex, zone) {
@@ -460,7 +512,7 @@ function cardMatchesSpecialZone(card, zone) {
 function syncSpecialZoneVisibility() {
   if (!state.table) return;
   SPECIAL_ZONES.forEach((zone) => {
-    const hasDeckCard = state.deck.some((id) => cardMatchesSpecialZone(state.cardCache.get(id), zone));
+    const hasDeckCard = state.deck.some((entry) => cardMatchesSpecialZone(state.cardCache.get(deckEntryId(entry)), zone));
     const hasTableCard = state.table.players.some((player) => (player.zones[zone] || []).length > 0);
     if (hasDeckCard || hasTableCard) state.autoHiddenZones.delete(zone);
     else state.autoHiddenZones.add(zone);
@@ -486,7 +538,8 @@ function zoneItems(playerIndex, zone) {
 }
 
 function findTableItem(playerIndex, zone, uid) {
-  return zoneItems(playerIndex, zone).find((item) => item.uid === uid);
+  const flatten = (items) => items.flatMap((item) => [item, ...flatten(stackParts(item).below), ...flatten(stackParts(item).above)]);
+  return flatten(zoneItems(playerIndex, zone)).find((item) => item.uid === uid);
 }
 
 function stackParts(item) {
@@ -511,6 +564,17 @@ function stackDetailItems(item) {
   const stack = stackParts(item);
   const flatten = (items) => items.flatMap((child) => [...flatten(stackParts(child).below), child, ...flatten(stackParts(child).above)]);
   return [...flatten(stack.below), item, ...flatten(stack.above)];
+}
+
+function stackPeekMarkup(item, hideCard = false) {
+  const detail = stackDetailItems(item);
+  const lower = detail.slice(0, -1).slice(-4);
+  return lower.map((child, index) => {
+    const orientation = child.tapped ? 'tapped' : 'untapped';
+    const visible = !hideCard && child.card;
+    const art = visible ? cardArt(child.card) : cardArt(null, true);
+    return `<span class="stack-peek ${orientation}" style="--peek-index:${index + 1}" data-stack-peek-uid="${escapeHtml(child.uid)}" title="${visible ? cardName(child.card) : '裏向きのカード'}">${art}</span>`;
+  }).join('');
 }
 
 function actionCardIds(item) {
@@ -573,6 +637,10 @@ function renderTable() {
   const spectator = state.viewerRole === 'spectator';
   $('#turn-badge').textContent = spectator ? '観戦中' : table.status === 'waiting' ? '対戦相手を待っています' : table.active_player === 0 ? 'YOUR TURN' : 'OPPONENT TURN';
   $('#end-turn').disabled = spectator || table.status === 'waiting' || (isOnlineMode() && table.active_player !== 0);
+  const firstPlayer = $('#first-player');
+  firstPlayer.textContent = table.first_player == null ? '' : `先攻：${table.players[table.first_player].name}`;
+  firstPlayer.classList.toggle('hidden', table.first_player == null);
+  $('#restart-game').disabled = spectator || table.status === 'waiting';
   $('#spectator-count').classList.toggle('hidden', !isOnlineMode());
   $('#spectator-count').textContent = `観戦 ${table.spectator_count || 0}人`;
   $('#opponent-name').textContent = table.players[1].name;
@@ -607,13 +675,16 @@ function renderTable() {
   fitGameField();
   updateStackModeUI();
   syncHandWindow();
+  restorePinnedPreview();
 }
 
 function selectCard(uid, additive = false) {
   state.expandedZones.clear();
   if (!additive) state.selected.clear();
   if (state.selected.has(uid) && additive) state.selected.delete(uid); else state.selected.add(uid);
+  state.pinnedPreviewUid = state.selected.has(uid) ? uid : Array.from(state.selected).at(-1) || '';
   renderTable();
+  restorePinnedPreview();
 }
 
 function hidePreview() {
@@ -640,6 +711,12 @@ function stackSourcesExist(mode) {
   const player = state.table?.players?.[mode.player];
   const items = player ? [...Object.values(player.zones).flat(), ...player.shields] : [];
   return mode.cardIds.length > 0 && mode.cardIds.every((uid) => items.some((item) => item.uid === uid));
+}
+
+function restorePinnedPreview() {
+  const item = findGameItems(state.table, [state.pinnedPreviewUid])[0];
+  if (item) showPreview(stackVisualItem(item).card);
+  else hidePreview();
 }
 
 function isStackTarget(node) {
@@ -762,19 +839,31 @@ async function receiveHandStackMode(message) {
 const stackPanel = createStackModePanel($('#stack-mode-bar'), setStackPosition, () => endStackMode());
 const stackBridge = createStackModeBridge('field', () => state.table?.id, () => state.handWindow, receiveHandStackMode);
 
-function showMenu(event, uid, playerIndex = 0, zone = '') {
+function showMenu(event, uid, playerIndex = 0, zone = '', options = {}) {
   if (!canControlPlayer(playerIndex)) return;
-  if (!state.selected.has(uid)) selectCard(uid);
+  if (!options.cardIds && !state.selected.has(uid)) selectCard(uid);
+  const cardIds = options.cardIds ? [...new Set(options.cardIds)] : Array.from(state.selected);
   const node = $('#context-menu');
   const inspectButton = INSPECTABLE_ZONES.has(zone) ? '<button data-menu-command="inspect-zone">内容を見る</button><div class="menu-separator"></div>' : '';
-  const clickedItem = findGameItems(state.table, [uid])[0];
-  node.innerHTML = `${inspectButton}<button data-menu-command="note">${clickedItem?.note ? 'メモを編集する' : 'メモをつける'}</button><button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="waiting">待機ゾーンへ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
+  const clickedItem = options.clickedItem || findGameItems(state.table, [uid])[0];
+  const noteItem = clickedItem ? stackVisualItem(clickedItem) : null;
+  node.innerHTML = `${inspectButton}<button data-menu-command="note">${clickedItem?.note ? 'メモを編集する' : 'メモをつける'}</button><button data-menu-command="stack-details">カードを重ねる ▶</button><button data-menu-command="move" data-zone="hand">手札へ</button><button data-menu-command="move" data-zone="mana">マナへ</button><button data-menu-command="move" data-zone="mana" data-keep-face-down="true">裏向きのままマナへ</button><button data-menu-command="move" data-zone="graveyard">墓地へ</button><button data-menu-command="move" data-zone="waiting">待機ゾーンへ</button><button data-menu-command="move" data-zone="waiting" data-keep-face-down="true">相手に非公開で待機ゾーンへ</button><button data-menu-command="move" data-zone="battle">バトルゾーンへ</button><button data-menu-command="move" data-zone="shields">シールドゾーンへ</button><button data-menu-command="move" data-zone="shields" data-position="face_up">表向きでシールドゾーンへ</button>${specialZoneMenuMarkup("field-special-zones")}<div class="menu-separator"></div><button data-menu-command="move" data-zone="deck" data-position="top">山札の一番上へ</button><button data-menu-command="move" data-zone="deck" data-position="bottom">山札の一番下へ</button><button data-menu-command="move" data-zone="deck" data-position="shuffle">山札に加えてシャッフル</button><div class="menu-separator"></div><button data-menu-command="flip" data-value="true">表向きにする</button><button data-menu-command="flip" data-value="false">裏向きにする</button><button data-menu-command="tap" data-value="true">タップする</button><button data-menu-command="tap" data-value="false">アンタップする</button>`;
+  if (zone === 'hand') {
+    const selectedItems = findGameItems(state.table, cardIds);
+    const allShown = selectedItems.length > 0 && selectedItems.every((item) => item.shown_to_opponent);
+    const revealButton = document.createElement('button');
+    revealButton.dataset.menuCommand = 'show-hand-card';
+    revealButton.dataset.value = String(!allShown);
+    revealButton.textContent = allShown ? '相手に見せるのをやめる' : '相手に見せる';
+    node.insertBefore(revealButton, node.querySelector('[data-menu-command="note"]'));
+  }
+  node.querySelector('[data-menu-command="note"]').textContent = noteItem?.note ? 'メモを編集する' : 'メモをつける';
   positionContextMenu(node, event.clientX, event.clientY);
   bindSpecialZoneMenu(node, () => positionContextMenu(node, event.clientX, event.clientY));
-  updateMoveButtons(node, findGameItems(state.table, state.selected));
+  updateMoveButtons(node, findGameItems(state.table, cardIds));
   if (cardHomeZone(clickedItem) === 'extra') addTurnOverButton(node, clickedItem, event);
   node.querySelectorAll('[data-menu-command="flip"]').forEach((button) => {
-    button.disabled = button.dataset.value === 'false' && findGameItems(state.table, state.selected).some((item) => cardHomeZone(item) === 'extra');
+    button.disabled = button.dataset.value === 'false' && findGameItems(state.table, cardIds).some((item) => cardHomeZone(item) === 'extra');
   });
   node.querySelectorAll('[data-menu-command]').forEach((button) => button.addEventListener('click', (clickEvent) => {
     clickEvent.stopPropagation();
@@ -785,18 +874,42 @@ function showMenu(event, uid, playerIndex = 0, zone = '') {
       return;
     }
     if (command === 'stack-details') {
-      beginStackMode(Array.from(state.selected), playerIndex);
+      beginStackMode(cardIds, playerIndex);
+      return;
+    }
+    if (command === 'show-hand-card') {
+      node.classList.add('hidden');
+      sendCommand({ command: 'set_hand_card_visibility', card_ids: cardIds, value: button.dataset.value === 'true' });
       return;
     }
     if (command === 'note') {
       node.classList.add('hidden');
-      const note = window.prompt('カードのメモ（空欄で削除・120文字まで）', clickedItem?.note || '');
-      if (note !== null) sendCommand({ command: 'set_note', card_ids: [uid], note });
+      const note = window.prompt('カードのメモ（空欄で削除・120文字まで）', noteItem?.note || '');
+      if (note !== null) sendCommand({ command: 'set_note', card_ids: cardIds, note, inspectorAction: options.inspectorAction });
       return;
     }
-    const body = command === 'move' ? { command, card_ids: Array.from(state.selected), zone: button.dataset.zone, position: button.dataset.position || 'append', target_player: 0, keep_face_down: button.dataset.keepFaceDown === 'true' } : { command, card_ids: Array.from(state.selected), value: button.dataset.value === 'true' };
+    const body = command === 'move' ? { command, card_ids: cardIds, zone: button.dataset.zone, position: button.dataset.position || 'append', target_player: playerIndex, keep_face_down: button.dataset.keepFaceDown === 'true', inspectorAction: options.inspectorAction } : { command, card_ids: cardIds, value: button.dataset.value === 'true', inspectorAction: options.inspectorAction };
     node.classList.add('hidden'); sendCommand(body);
   }));
+}
+
+let dragState = null;
+
+function dragCardIds(rootItem, keepWholeStack) {
+  const selectedIds = state.selected.has(rootItem.uid) && state.selected.size > 1
+    ? Array.from(state.selected) : [rootItem.uid];
+  return selectedIds.map((uid) => {
+    const item = findGameItems(state.table, [uid])[0];
+    return keepWholeStack ? item?.uid : stackVisualItem(item || {}).uid;
+  }).filter(Boolean);
+}
+
+function finishDragCommand(body) {
+  const currentDrag = dragState;
+  const operation = Promise.resolve(currentDrag?.pending).then(() =>
+    sendCommand(body, { deferRender: true, preserveSelection: true }));
+  if (currentDrag) currentDrag.pending = operation;
+  return operation;
 }
 
 function bindCardEvents() {
@@ -807,11 +920,12 @@ function bindCardEvents() {
       const zone = node.dataset.zone;
       const item = findTableItem(player, zone, node.dataset.uid);
       if (zone !== 'mana') state.expandedZones.clear();
-      if (item && stackCount(item)) {
+      const additive = event.ctrlKey || event.metaKey;
+      if (item && stackCount(item) && !additive) {
         openStackInspector(item, player, zone);
         return;
       }
-      if (AUTO_INSPECT_ZONES.has(zone)) {
+      if (AUTO_INSPECT_ZONES.has(zone) && !additive) {
         openZoneInspector(player, zone);
         return;
       }
@@ -823,7 +937,7 @@ function bindCardEvents() {
         return;
       }
       if (!canControlPlayer(player)) return;
-      selectCard(node.dataset.uid, event.ctrlKey || event.metaKey);
+      selectCard(node.dataset.uid, additive);
     });
     node.addEventListener('contextmenu', (event) => {
       event.preventDefault();
@@ -837,20 +951,40 @@ function bindCardEvents() {
       sendCommand({ command: 'tap', card_ids: actionCardIds(item), value: event.deltaY < 0 });
     }, { passive: false });
     node.addEventListener('pointerenter', () => { const item = findTableItem(Number(node.dataset.player), node.dataset.zone, node.dataset.uid); showPreview(item && stackVisualItem(item).card); });
-    node.addEventListener('pointerleave', hidePreview);
+    node.addEventListener('pointerleave', restorePinnedPreview);
     node.addEventListener('dragstart', (event) => {
       if (!canControlPlayer(node.dataset.player)) { event.preventDefault(); return; }
-      event.dataTransfer.setData('text/plain', node.dataset.uid); event.dataTransfer.effectAllowed = 'move';
+      const item = findTableItem(Number(node.dataset.player), node.dataset.zone, node.dataset.uid);
+      const keepWholeStack = Boolean(event.ctrlKey || event.metaKey);
+      const cardIds = dragCardIds(item, keepWholeStack);
+      dragState = { cardIds, rootUid: node.dataset.uid, preserveStack: keepWholeStack, pending: null, lastWheel: 0 };
+      event.dataTransfer.setData('text/plain', cardIds[0] || ''); event.dataTransfer.effectAllowed = 'move';
     });
-    node.addEventListener('drop', (event) => {
+    node.addEventListener('dragover', (event) => {
+      if (dragState && dragState.rootUid !== node.dataset.uid && canControlPlayer(node.dataset.player) && cardsCanMove(findGameItems(state.table, dragState.cardIds), node.dataset.zone)) {
+        event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+      }
+    });
+    node.addEventListener('drop', async (event) => {
       if (!canControlPlayer(node.dataset.player)) return;
       event.preventDefault(); event.stopPropagation();
-      const from = event.dataTransfer.getData('text/plain');
-      if (!from || from === node.dataset.uid) return;
-      const source = $(`.table-card[data-uid="${CSS.escape(from)}"]`);
-      if (!source || !canControlPlayer(source.dataset.player)) return;
-      if (source.dataset.zone === node.dataset.zone && source.dataset.player === node.dataset.player) sendCommand({ command: 'swap', first: from, second: node.dataset.uid });
-      else sendCommand({ command: 'move', card_ids: [from], zone: node.dataset.zone, target_player: Number(node.dataset.player) });
+      if (!dragState || dragState.rootUid === node.dataset.uid) return;
+      await finishDragCommand({ command: 'stack', card_ids: dragState.cardIds, target_id: node.dataset.uid, position: 'above', drag_drop: true });
+    });
+  });
+  $$('.stack-peek').forEach((peek) => {
+    peek.addEventListener('pointerenter', (event) => {
+      event.stopPropagation();
+      showPreview(findGameItems(state.table, [peek.dataset.stackPeekUid])[0]?.card);
+    });
+    peek.addEventListener('pointerleave', (event) => {
+      const root = peek.closest('.table-card');
+      if (root?.contains(event.relatedTarget)) {
+        const item = findGameItems(state.table, [root.dataset.uid])[0];
+        showPreview(item && stackVisualItem(item).card);
+      } else {
+        restorePinnedPreview();
+      }
     });
   });
   $$('.mana-orb').forEach((node) => {
@@ -875,7 +1009,7 @@ function bindCardEvents() {
   });
 }
 
-async function sendCommand(body) {
+async function sendCommand(body, options = {}) {
   if (!state.table) return false;
   if (state.viewerRole === 'spectator') {
     notice('観戦中はカードを操作できません。');
@@ -897,14 +1031,21 @@ async function sendCommand(body) {
     const data = await tableApi(`/api/tables/${state.table.id}/commands`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     state.table = data.table;
     if (body.command === 'move' && SPECIAL_ZONES.includes(body.zone)) state.hiddenZones.delete(body.zone);
-    state.selected.clear();
-    renderTable();
+    if (!options.preserveSelection) { state.selected.clear(); state.pinnedPreviewUid = ''; }
+    if (!options.deferRender) renderTable();
     if (data.deck_view) openInspector(data.deck_view, Number(body.player) === 1 ? '相手の山札を見る' : '山札を見る', Number(body.player) === 1 ? 1 : 0, 'deck');
     if (data.error) notice(data.error);
-    if (body.inspectorAction && body.command === 'move') {
-      const moved = new Set(body.card_ids || []);
-      state.inspectorItems = state.inspectorItems.filter((item) => !moved.has(item.uid));
-      state.inspectorSelected.clear();
+    if (body.command === 'restart_game' && data.table.start_message) notice(`対戦をやり直しました。${data.table.start_message}`);
+    if (body.inspectorAction) {
+      const affected = new Set(body.card_ids || []);
+      if (body.command === 'move') {
+        state.inspectorItems = state.inspectorItems.filter((item) => !affected.has(item.uid));
+        state.inspectorSelected.clear();
+      } else if (body.command === 'set_note') {
+        state.inspectorItems.forEach((item) => { if (affected.has(item.uid)) stackVisualItem(item).note = body.note || ''; });
+      } else if (body.command === 'flip' || body.command === 'tap') {
+        state.inspectorItems.forEach((item) => { if (affected.has(item.uid)) item[body.command === 'flip' ? 'face_up' : 'tapped'] = Boolean(body.value); });
+      }
       renderInspectorCards();
     }
     if (body.command === 'turn_over') {
@@ -945,9 +1086,14 @@ function renderInspectorCards() {
     button.setAttribute('aria-pressed', String(state.inspectorSelected.has(uid)));
     button.addEventListener('pointerenter', preview);
     button.addEventListener('focus', preview);
-    button.addEventListener('click', () => {
+    button.addEventListener('click', (event) => {
       if (!canControlPlayer(state.inspectorTargetPlayer)) return;
-      if (state.inspectorSelected.has(uid)) state.inspectorSelected.delete(uid); else state.inspectorSelected.add(uid);
+      if (!(event.ctrlKey || event.metaKey)) state.inspectorSelected.clear();
+      if (state.inspectorSelected.has(uid) && (event.ctrlKey || event.metaKey)) state.inspectorSelected.delete(uid); else state.inspectorSelected.add(uid);
+      node.querySelectorAll('[data-inspector-uid]').forEach((cardNode) => {
+        cardNode.classList.toggle('selected', state.inspectorSelected.has(cardNode.dataset.inspectorUid));
+        cardNode.setAttribute('aria-pressed', String(state.inspectorSelected.has(cardNode.dataset.inspectorUid)));
+      });
       button.classList.toggle('selected', state.inspectorSelected.has(uid));
       button.setAttribute('aria-pressed', String(state.inspectorSelected.has(uid)));
       updateInspectorActions();
@@ -955,13 +1101,17 @@ function renderInspectorCards() {
     });
     button.addEventListener('contextmenu', (event) => {
       if (!canControlPlayer(state.inspectorTargetPlayer)) return;
-      const item = state.inspectorItems.find((item) => item.uid === uid);
-      if (cardHomeZone(item) !== 'extra') return;
       event.preventDefault();
-      const menu = $('#context-menu');
-      menu.innerHTML = '';
-      addTurnOverButton(menu, item, event);
-      positionContextMenu(menu, event.clientX, event.clientY);
+      if (!state.inspectorSelected.has(uid)) {
+        state.inspectorSelected.clear();
+        state.inspectorSelected.add(uid);
+        renderInspectorCards();
+      }
+      showMenu(event, uid, state.inspectorTargetPlayer, state.inspectorZone, {
+        cardIds: Array.from(state.inspectorSelected),
+        inspectorAction: true,
+        clickedItem: state.inspectorItems.find((item) => item.uid === uid),
+      });
     });
   });
   updateInspectorActions();
@@ -1217,6 +1367,7 @@ function beginRangeSelection(event) {
   if (event.button !== 0 || event.target.closest('.table-card, .mana-orb, .card-viewer, button, select, input, .zone-head')) return;
   rangeSelection = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, active: false };
   state.selected.clear();
+  state.pinnedPreviewUid = '';
   $('#selection-count').textContent = '0枚選択中';
   $('#field').setPointerCapture?.(event.pointerId);
 }
@@ -1274,6 +1425,7 @@ $('#load-deck').addEventListener('click', loadSavedDecks);
 $('#start-match').addEventListener('click', startTable);
 $('#fullscreen').addEventListener('click', toggleFullScreen);
 $('#end-turn').addEventListener('click', () => sendCommand({ command: 'end_turn' }));
+$('#restart-game').addEventListener('click', () => sendCommand({ command: 'restart_game' }));
 $('#toggle-opponent-hand').addEventListener('click', () => {
   const player = state.table?.players?.[0];
   if (player) sendCommand({ command: 'set_hand_visibility', player: 0, audience: 'opponent', value: !player.hand_revealed_to_opponent });
@@ -1298,7 +1450,7 @@ $('#zones-toggle').addEventListener('click', () => $('#zone-settings').classList
 $('#display-toggle').addEventListener('click', () => $('#display-settings').classList.toggle('hidden'));
 $('#hand-window-toggle').addEventListener('click', openHandWindow);
 $('#close-inspector').addEventListener('click', () => $('#deck-inspector').classList.add('hidden'));
-$('#clear-selection').addEventListener('click', () => { state.selected.clear(); renderTable(); });
+$('#clear-selection').addEventListener('click', () => { state.selected.clear(); state.pinnedPreviewUid = ''; renderTable(); });
 
 $('#card-scale').addEventListener('input', (event) => { state.displaySettings.cardScale = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
 $('#card-height-percent').addEventListener('input', (event) => { state.displaySettings.cardHeightPercent = Number(event.target.value); applyDisplaySettings(); saveDisplaySettings(); });
@@ -1343,9 +1495,7 @@ $$('.zone').forEach((node) => node.addEventListener('click', (event) => {
 $('#field').addEventListener('dragover', (event) => {
   const zone = event.target.closest('.zone');
   if (!zone || !canControlPlayer(zone.dataset.player)) return;
-  // A drag's payload is not readable during dragover; retain its UID from dragstart.
-  const source = $('#field .drag-source');
-  if (source && canControlPlayer(source.dataset.player) && cardsCanMove(findGameItems(state.table, [source.dataset.uid]), zone.dataset.zone)) {
+  if (dragState && cardsCanMove(findGameItems(state.table, dragState.cardIds), zone.dataset.zone)) {
     event.preventDefault(); event.dataTransfer.dropEffect = 'move';
   } else event.dataTransfer.dropEffect = 'none';
 });
@@ -1358,22 +1508,49 @@ $('#copy-room').addEventListener('click', async () => {
   } catch (error) { notice(`部屋番号は ${room} です。`); }
 });
 $('#field').addEventListener('dragstart', (event) => event.target.closest('.table-card')?.classList.add('drag-source'));
-$('#field').addEventListener('dragend', () => $$('.drag-source').forEach((node) => node.classList.remove('drag-source')));
-$('#field').addEventListener('drop', (event) => {
+$('#field').addEventListener('dragend', async () => {
+  const pending = dragState?.pending;
+  if (pending) await pending;
+  dragState = null;
+  state.selected.clear();
+  state.pinnedPreviewUid = '';
+  $$('.drag-source').forEach((node) => node.classList.remove('drag-source'));
+  renderTable();
+});
+$('#field').addEventListener('drop', async (event) => {
   const zone = event.target.closest('.zone');
   if (!zone || !canControlPlayer(zone.dataset.player)) return;
   event.preventDefault();
-  const uid = event.dataTransfer.getData('text/plain');
-  if (uid) sendCommand({ command: 'move', card_ids: [uid], zone: zone.dataset.zone, target_player: Number(zone.dataset.player) });
+  if (dragState) await finishDragCommand({ command: 'move', card_ids: dragState.cardIds, zone: zone.dataset.zone, target_player: Number(zone.dataset.player), preserve_stack: dragState.preserveStack });
 });
+$('#field').addEventListener('wheel', (event) => {
+  if (!dragState || performance.now() - dragState.lastWheel < 180) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const items = findGameItems(state.table, dragState.cardIds);
+  if (!items.length || items.some((item) => cardHomeZone(item) === 'extra')) return;
+  dragState.lastWheel = performance.now();
+  const value = !items.every((item) => item.face_up);
+  items.forEach((item) => { item.face_up = value; });
+  dragState.pending = Promise.resolve(dragState.pending).then(() =>
+    sendCommand({ command: 'flip', card_ids: dragState.cardIds, value }, { deferRender: true, preserveSelection: true }));
+}, { capture: true, passive: false });
 $$('[data-zone-toggle]').forEach((input) => input.addEventListener('change', () => { const zone = input.dataset.zoneToggle; if (input.checked) state.hiddenZones.delete(zone); else state.hiddenZones.add(zone); renderTable(); }));
 function sendInspectorMove(body) {
   const cardIds = inspectorCardIds();
   if (cardIds.length) sendCommand({ ...body, card_ids: cardIds, inspectorAction: true });
 }
 
+const inspectorWaitingButton = $('#deck-inspector [data-inspector-move="waiting"]');
+if (inspectorWaitingButton) {
+  const privateWaitingButton = inspectorWaitingButton.cloneNode(true);
+  privateWaitingButton.dataset.keepFaceDown = 'true';
+  privateWaitingButton.textContent = '相手に非公開で待機へ';
+  inspectorWaitingButton.after(privateWaitingButton);
+}
+
 $$('[data-inspector-move]').forEach((button) => button.addEventListener('click', () => {
-  sendInspectorMove({ command: 'move', zone: button.dataset.inspectorMove, position: button.dataset.position || 'append', target_player: state.inspectorTargetPlayer });
+  sendInspectorMove({ command: 'move', zone: button.dataset.inspectorMove, position: button.dataset.position || 'append', target_player: state.inspectorTargetPlayer, keep_face_down: button.dataset.keepFaceDown === 'true' });
 }));
 $$('[data-inspector-position]').forEach((button) => button.addEventListener('click', () => {
   sendInspectorMove({ command: 'move', zone: 'deck', position: button.dataset.inspectorPosition, target_player: state.inspectorTargetPlayer });
@@ -1436,7 +1613,7 @@ window.setInterval(async () => {
     if (tableStateChanged(data.table)) {
       state.table = data.table;
       renderTable();
-      if (previousStatus === 'waiting' && data.table.status === 'ready') notice(`${data.table.players[1].name} が参加しました。対戦を始められます。`);
+      if (previousStatus === 'waiting' && data.table.status === 'ready') notice(`${data.table.players[1].name} が参加しました。${data.table.start_message || '対戦を始められます。'}`);
     }
   } catch (error) {
     // 一時的な通信失敗は次回のポーリングで再試行する。

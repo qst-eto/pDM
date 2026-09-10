@@ -16,7 +16,7 @@ const cards = {
 for (const card of Object.values(cards)) Object.assign(card, { civiltxt: '水', typetxt: card.home_zone === 'extra' ? 'サイキック・クリーチャー' : card.home_zone === 'gachi' ? 'GRクリーチャー' : 'クリーチャー', abilitytxt: `${card.cardname}の能力` });
 const zoneNames = ['deck', 'hand', 'mana', 'graveyard', 'battle', 'extra', 'gachi', 'abyss'];
 let nextId = 0;
-const item = (id, visible = true) => ({ uid: `card-${nextId++}`, home_zone: cards[id].home_zone, face_up: visible, tapped: false, card: visible ? cards[id] : null, fixtureId: id });
+const item = (entry, visible = true) => { const id = Number(entry?.id ?? entry); return ({ uid: `card-${nextId++}`, home_zone: cards[id].home_zone, face_up: visible, tapped: false, card: visible ? cards[id] : null, fixtureId: id }); };
 const count = (table) => {
   for (const p of table.players) p.counts = Object.fromEntries(zoneNames.map((z) => [z, p.zones[z].length]));
   return table;
@@ -96,13 +96,14 @@ async function run() {
     assert.equal(await page.locator('#start-match').isDisabled(), false);
     await page.locator('#deck-target').selectOption('extra');
     for (let i = 0; i < 9; i++) await page.locator('[data-add-card="2"]').click();
-    assert.equal(await page.locator('#extra-deck-list .deck-chip').count(), 8);
+    assert.equal(await page.locator('#extra-deck-list .deck-chip').count(), 1);
+    assert.match(await page.locator('#extra-deck-list .deck-card-quantity').textContent(), /×8/);
     for (let i = 0; i < 7; i++) await page.locator('#extra-deck-list [data-remove-deck]').last().click();
     await page.locator('#deck-target').selectOption('battle');
     await page.locator('[data-add-card="7"]').click();
     await page.locator('#save-deck').click();
     await page.waitForFunction(() => document.querySelector('#saved-deck-list').textContent.includes('開始時 1'));
-    assert.deepEqual([saved.cards, saved.extra, saved.battle], [[1], [2], [7]]);
+    assert.deepEqual([saved.cards, saved.extra, saved.battle].map((entries) => entries.map((entry) => entry.id)), [[1], [2], [7]]);
     await page.locator('#clear-deck').click();
     await page.locator('[data-saved-deck="saved.json"]').click();
     await page.waitForFunction(() => state.specialDecks.gachi.length === 12);

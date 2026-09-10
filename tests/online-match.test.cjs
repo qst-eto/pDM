@@ -8,7 +8,7 @@ const origin = 'http://dm-online.test';
 const zones = ['deck', 'hand', 'mana', 'graveyard', 'waiting', 'battle', 'extra', 'gachi', 'abyss'];
 let uid = 0;
 const visibleCard = (owner) => ({ id: owner + 1, cardname: `${owner ? 'ゲスト' : 'ホスト'}カード`, civiltxt: owner ? '水' : '火', costtxt: '3', abilitytxt: '公開情報' });
-const instance = (owner, faceUp) => ({ uid: `online-${uid++}`, face_up: faceUp, tapped: false, note: '', card: visibleCard(owner), home_zone: null, stack: { below: [], above: [] } });
+const instance = (owner, faceUp) => ({ uid: `online-${uid++}`, face_up: faceUp, tapped: false, note: '', shown_to_opponent: false, card: visibleCard(owner), home_zone: null, stack: { below: [], above: [] } });
 const emptyPlayer = (name) => ({ name, zones: Object.fromEntries(zones.map((zone) => [zone, []])), shields: [], hand_revealed_to_opponent: false, hand_visible_to_spectators: false });
 const createPlayer = (name, owner) => {
   const player = emptyPlayer(name);
@@ -28,13 +28,16 @@ function publicTable(viewer) {
     const showItem = (item, zone) => {
       const publicZone = !['deck', 'hand'].includes(zone);
       const handVisible = zone === 'hand' && (relation === 'self' || (relation === 'opponent' && player.hand_revealed_to_opponent) || (relation === 'spectator' && player.hand_visible_to_spectators));
-      const reveal = item.face_up && (publicZone || handVisible);
-      return { ...item, face_up: reveal, card: reveal ? item.card : null, note: reveal ? item.note : '' };
+      const individuallyShown = zone === 'hand' && relation === 'opponent' && item.shown_to_opponent;
+      const reveal = item.face_up && (publicZone || handVisible || individuallyShown);
+      return { ...item, shown_to_opponent: relation === 'self' && item.shown_to_opponent, face_up: reveal, card: reveal ? item.card : null, note: reveal ? item.note : '' };
     };
     const result = { name: player.name, zones: {}, shields: player.shields.map((item) => showItem(item, 'shields')) };
     for (const zone of zones) result.zones[zone] = player.zones[zone].map((item) => showItem(item, zone));
     result.counts = Object.fromEntries(zones.map((zone) => [zone, player.zones[zone].length]));
     result.shield_count = player.shields.length;
+    result.hand_revealed_to_opponent = player.hand_revealed_to_opponent;
+    result.hand_visible_to_spectators = player.hand_visible_to_spectators;
     return result;
   };
   const order = spectator ? [0, 1] : [viewer, 1 - viewer];
@@ -86,6 +89,12 @@ async function installRoutes(context) {
       if (body.command === 'set_hand_visibility') {
         const key = body.audience === 'opponent' ? 'hand_revealed_to_opponent' : 'hand_visible_to_spectators';
         internal.players[viewer][key] = body.value;
+      }
+      if (body.command === 'set_hand_card_visibility') {
+        const hand = internal.players[viewer].zones.hand;
+        const selected = hand.filter((item) => body.card_ids.includes(item.uid));
+        assert.equal(selected.length, body.card_ids.length, 'Only the owner may reveal their hand cards');
+        selected.forEach((item) => { item.shown_to_opponent = body.value; });
       }
       if (body.command === 'end_turn') internal.active_player = 1 - internal.active_player;
       return json({ table: publicTable(viewer) });
@@ -139,6 +148,19 @@ async function run() {
     await spectator.locator('#turn-badge').filter({ hasText: '観戦中' }).waitFor();
     assert.equal(await spectator.locator('.table-card[draggable="true"]').count(), 0);
 
+    const selectivelyShown = await host.locator('.self-hand-zone .table-card').first().getAttribute('data-uid');
+    await host.locator(`.self-hand-zone [data-uid="${selectivelyShown}"]`).click({ button: 'right' });
+    assert.equal(await host.locator('#context-menu [data-menu-command="show-hand-card"]').textContent(), '相手に見せる');
+    await host.locator('#context-menu [data-menu-command="show-hand-card"]').click();
+    await guest.waitForFunction((cardId) => state.table.players[1].zones.hand.filter((item) => item.card).map((item) => item.uid).join() === cardId, selectivelyShown);
+    assert.equal(await host.locator(`.self-hand-zone [data-uid="${selectivelyShown}"] .shown-card-badge`).textContent(), '相手に公開中');
+    assert.equal(await spectator.locator('.self-hand-zone .card-back').count(), 5);
+    await host.locator(`.self-hand-zone [data-uid="${selectivelyShown}"]`).click({ button: 'right' });
+    assert.equal(await host.locator('#context-menu [data-menu-command="show-hand-card"]').textContent(), '相手に見せるのをやめる');
+    await host.locator('#context-menu [data-menu-command="show-hand-card"]').click();
+    await guest.waitForFunction(() => state.table.players[1].zones.hand.every((item) => !item.card));
+    assert.equal(await host.locator('.self-hand-zone .shown-card-badge').count(), 0);
+
     await host.locator('#toggle-spectator-hand').click();
     await spectator.waitForFunction(() => state.table.players[0].zones.hand.every((item) => item.card));
     assert.equal(await spectator.locator('.self-hand-zone .card-back').count(), 0);
@@ -153,7 +175,7 @@ async function run() {
     assert.equal(await guest.locator(`.opponent-battle-zone [data-uid="${hostCard}"]`).count(), 1);
 
     await host.locator(`.self-battle-zone [data-uid="${hostCard}"]`).click({ button: 'right' });
-    await host.locator('#context-menu [data-zone="waiting"]').click();
+    await host.locator('#context-menu [data-zone="waiting"]:not([data-keep-face-down])').click();
     await host.waitForFunction((cardId) => state.table.players[0].zones.waiting.some((item) => item.uid === cardId), hostCard);
     await host.locator(`.waiting-zone[data-player="0"] [data-uid="${hostCard}"]`).click();
     await host.locator('#deck-inspector:not(.hidden)').waitFor();
@@ -176,7 +198,7 @@ async function run() {
     assert.equal(await host.locator('#self-field-size').inputValue(), '190');
     assert.equal(await guest.locator('#self-field-size').inputValue(), '100');
     assert.deepEqual(errors, []);
-    console.log('PASS online: spectators, separate hand sharing, waiting zone, notes, synchronized move/turn, reconnect, independent layout');
+    console.log('PASS online: spectators, selected/full hand sharing, waiting zone, notes, synchronized move/turn, reconnect, independent layout');
   } finally { await browser.close(); }
 }
 run().catch((error) => { console.error(error); process.exitCode = 1; });

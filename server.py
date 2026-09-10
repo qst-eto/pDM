@@ -86,8 +86,14 @@ def image_candidates(image_root, filename):
     return candidates
 
 
-def image_file_for(card):
-    for filename in card.get('image_files', []):
+def image_file_for(card, image_index=0):
+    files = card.get('image_files', [])
+    try:
+        image_index = int(image_index)
+    except (TypeError, ValueError):
+        image_index = 0
+    filenames = files[image_index:image_index + 1] if 0 <= image_index < len(files) else files[:1]
+    for filename in filenames:
         for image_root in IMAGE_ROOTS:
             root = Path(image_root)
             for image_path in image_candidates(root, filename):
@@ -128,6 +134,12 @@ def enrich_mana_civils(card):
 
 
 def card_view(card):
+    image_files = card.get('image_files', [])
+    try:
+        image_index = max(0, min(int(card.get('_image_index', 0)), max(0, len(image_files) - 1)))
+    except (TypeError, ValueError):
+        image_index = 0
+    base_image_url = '/api/cards/{}/image'.format(card['id'])
     return {
         'id': card['id'],
         'cardname': card.get('cardname', ''),
@@ -141,7 +153,12 @@ def card_view(card):
         'racetxt': card.get('racetxt', ''),
         'abilitytxt': card.get('abilitytxt', ''),
         'flavortxt': card.get('flavortxt', ''),
-        'image_url': card.get('image_url'),
+        'image_url': '{}?index={}'.format(base_image_url, image_index) if image_files else card.get('image_url'),
+        'image_index': image_index,
+        'image_options': [
+            {'index': index, 'image_url': '{}?index={}'.format(base_image_url, index)}
+            for index in range(len(image_files))
+        ],
         'home_zone': card_home_zone(card),
         'face_options': card.get('face_options', []),
         'face_actions': card.get('face_actions', {'up': [], 'down': []}),
@@ -277,6 +294,7 @@ def make_instance(card, face_up=True):
         'home_zone': card_home_zone(card),
         'tapped': False,
         'note': '',
+        'shown_to_opponent': False,
         'stack': {'below': [], 'above': []},
     }
 
@@ -333,15 +351,19 @@ def load_deck_config(payload, main_key='cards', prefix='', for_start=False):
         raw = payload.get(prefix + (main_key if section == 'cards' else section), [])
         if not isinstance(raw, list) or len(raw) > (40 if section == 'cards' else 200):
             raise ValueError('デッキのカード一覧または枚数が不正です。')
-        ids = []
+        entries = []
         for entry in raw:
             try:
-                ids.append(int(entry.get('id') if isinstance(entry, dict) else entry))
+                card_id = int(entry.get('id') if isinstance(entry, dict) else entry)
+                image_index = int(entry.get('image_index', 0)) if isinstance(entry, dict) else 0
+                entries.append((card_id, max(0, image_index)))
             except (ValueError, TypeError):
                 raise ValueError('カードIDが不正です。')
-        sections[section] = get_cards(ids)
-        if len(sections[section]) != len(ids):
+        sections[section] = get_cards([entry[0] for entry in entries])
+        if len(sections[section]) != len(entries):
             raise ValueError('DBに存在しないカードが含まれています。')
+        for card, (_, image_index) in zip(sections[section], entries):
+            card['_image_index'] = min(image_index, max(0, len(card.get('image_files', [])) - 1))
     # 旧形式で通常デッキに入っていた特殊カードも山札へ混ぜない。
     main = []
     for card in sections['cards']:
@@ -378,6 +400,12 @@ def new_table(player_name, deck_cards, opponent_cards, special_decks=None, oppon
             prepare_player(player_name or 'プレイヤー', player_deck, special_decks, deck_is_shuffled=True),
             prepare_player('対戦相手', opponent_deck, opponent_special_decks, deck_is_shuffled=True),
         ],
+        'initial_setups': [
+            {'name': player_name or 'プレイヤー', 'cards': list(player_deck), 'special': special_decks or {}},
+            {'name': '対戦相手', 'cards': list(opponent_deck), 'special': opponent_special_decks or {}},
+        ],
+        'first_player': 0,
+        'start_method': 'manual',
         'log': [],
     }
     log_event(table, '手動対戦テーブルを作成しました。')
@@ -396,12 +424,47 @@ def new_online_room(player_name, deck_cards, special_decks=None):
             prepare_player(player_name or 'プレイヤー1', deck_cards, special_decks),
             empty_player('対戦相手を待っています'),
         ],
+        'initial_setups': [
+            {'name': player_name or 'プレイヤー1', 'cards': list(fill_deck(deck_cards)), 'special': special_decks or {}},
+            None,
+        ],
+        'first_player': None,
+        'start_method': 'coin',
         'player_tokens': [uuid.uuid4().hex, None],
         'spectator_tokens': [],
         'log': [],
     }
     log_event(table, '通信対戦の部屋を作成しました。対戦相手を待っています。')
     return table
+
+
+def choose_first_player(table):
+    """通信対戦の先攻を、公平にサーバー側のコイントスで決める。"""
+    first = RANDOM_SOURCE.randrange(2)
+    table['first_player'] = first
+    table['active_player'] = first
+    table['start_method'] = 'coin'
+    log_event(table, 'コイントスの結果、{} が先攻です。'.format(table['players'][first]['name']))
+    return first
+
+
+def restart_table(table):
+    setups = table.get('initial_setups') or []
+    if len(setups) != 2 or not all(setups):
+        return False, '開始時のデッキ構成が見つかりません。'
+    table['players'] = [
+        prepare_player(setup['name'], setup['cards'], setup.get('special'))
+        for setup in setups
+    ]
+    table['turn'] = 1
+    table['log'] = []
+    if table.get('mode') == 'online':
+        choose_first_player(table)
+    else:
+        table['first_player'] = 0
+        table['active_player'] = 0
+        log_event(table, '対戦を開始状態からやり直しました。')
+    return True, ''
 
 
 def log_event(table, message):
@@ -455,27 +518,34 @@ def locate_card(table, uid):
     return None
 
 
-def serialize_item(item, visible, force_reveal=False):
-    revealed = force_reveal or (visible and item.get('face_up'))
+def serialize_item(item, visible, force_reveal=False, owner_view=False, individual_hand_reveal=False):
+    revealed = (
+        force_reveal
+        or (individual_hand_reveal and item.get('shown_to_opponent'))
+        or (owner_view and item.get('private_to_opponent'))
+        or (visible and item.get('face_up'))
+    )
     result = {
         'uid': item['uid'],
         'face_up': bool(revealed),
         'tapped': item.get('tapped', False),
         'card': item['card'] if revealed else None,
         'home_zone': item.get('home_zone'),
+        'private_to_opponent': bool(item.get('private_to_opponent')) if owner_view else False,
+        'shown_to_opponent': bool(item.get('shown_to_opponent')) if owner_view else False,
         # 非公開カードのメモからカード内容を推測できないよう、カードと同じ公開範囲にする。
         'note': str(item.get('note') or '') if revealed else '',
     }
     stack = item.get('stack')
     if isinstance(stack, dict) and (stack.get('below') or stack.get('above')):
         result['stack'] = {
-            'below': [serialize_item(child, visible, force_reveal) for child in stack.get('below', [])],
-            'above': [serialize_item(child, visible, force_reveal) for child in stack.get('above', [])],
+            'below': [serialize_item(child, visible, force_reveal, owner_view, individual_hand_reveal) for child in stack.get('below', [])],
+            'above': [serialize_item(child, visible, force_reveal, owner_view, individual_hand_reveal) for child in stack.get('above', [])],
         }
     return result
 
 
-def public_player(player, player_index, hand_visible=False):
+def public_player(player, player_index, hand_visible=False, individual_hand_visible=False):
     zones = {}
     for zone in ZONES:
         visible = (
@@ -491,6 +561,8 @@ def public_player(player, player_index, hand_visible=False):
             serialize_item(
                 item,
                 visible,
+                owner_view=player_index == 0,
+                individual_hand_reveal=zone == 'hand' and individual_hand_visible,
             )
             for index, item in enumerate(player['zones'][zone])
         ]
@@ -530,7 +602,12 @@ def public_table(table, viewer_index=None, viewer_role='player'):
             if relation == 'spectator'
             else player.get('hand_revealed_to_opponent', False)
         )
-        players.append(public_player(player, 0 if relation == 'self' else 1, hand_visible))
+        players.append(public_player(
+            player,
+            0 if relation == 'self' else 1,
+            hand_visible,
+            individual_hand_visible=relation == 'opponent',
+        ))
     return {
         'id': table['id'],
         'room_id': table.get('room_id', table['id']),
@@ -540,6 +617,15 @@ def public_table(table, viewer_index=None, viewer_role='player'):
         'spectator_count': len(table.get('spectator_tokens', [])),
         'turn': table['turn'],
         'active_player': active_player,
+        'first_player': (
+            None if table.get('first_player') not in (0, 1)
+            else order.index(table['first_player'])
+        ),
+        'start_method': table.get('start_method'),
+        'start_message': (
+            'コイントスの結果、{} が先攻です。'.format(table['players'][table['first_player']]['name'])
+            if table.get('start_method') == 'coin' and table.get('first_player') in (0, 1) else ''
+        ),
         # 閲覧者自身を常に player 0 として返し、両端末で手前側を自分にする。
         'players': players,
         'log': table['log'],
@@ -565,10 +651,8 @@ def online_viewer(table, token):
 
 
 def command_card_ids(command, body):
-    if command in ('move', 'stack', 'flip', 'tap', 'turn_over', 'set_note'):
+    if command in ('move', 'stack', 'flip', 'tap', 'turn_over', 'set_note', 'set_hand_card_visibility'):
         return list(body.get('card_ids', []))
-    if command == 'swap':
-        return [body.get('first'), body.get('second')]
     return []
 
 
@@ -606,7 +690,7 @@ def authorize_online_command(table, viewer_index, command, body):
     return mapped, ''
 
 
-def move_cards(table, card_ids, target_zone, target_player=0, position='append'):
+def move_cards(table, card_ids, target_zone, target_player=0, position='append', preserve_stack=False):
     if target_zone not in ZONES and target_zone != 'shields':
         return False, '移動先ゾーンが不正です。'
     if not isinstance(card_ids, list) or not card_ids:
@@ -625,16 +709,21 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
         if not detach_item(table, item):
             return False, '対象カードが見つかりません。'
 
-    moving = list(flattened_stack_items(moving))
+    if not preserve_stack:
+        moving = list(flattened_stack_items(moving))
 
     keep_face_down = bool(position == 'keep_face_down')
+    all_moving = [part for item in moving for part in [item, *stack_descendants(item)]]
+    for item in all_moving:
+        item['private_to_opponent'] = bool(target_zone == 'waiting' and keep_face_down)
+        item['shown_to_opponent'] = False
     if target_zone == 'shields':
-        for item in moving:
+        for item in all_moving:
             item['face_up'] = position == 'face_up'
             item['tapped'] = False
         table['players'][target_player]['shields'].extend(moving)
     elif target_zone in ('deck', 'gachi'):
-        for item in moving:
+        for item in all_moving:
             item['face_up'] = False
             item['tapped'] = False
         destination = table['players'][target_player]['zones'][target_zone]
@@ -647,13 +736,13 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append')
             if target_zone == 'deck':
                 RANDOM_SOURCE.shuffle(destination)
     else:
-        for item in moving:
+        for item in all_moving:
             item['face_up'] = not keep_face_down
         table['players'][target_player]['zones'][target_zone].extend(moving)
     return True, ''
 
 
-def stack_cards(table, card_ids, target_uid, position='above'):
+def stack_cards(table, card_ids, target_uid, position='above', allow_any_zone=False):
     if not isinstance(card_ids, list) or not card_ids:
         return False, '重ねるカードが選択されていません。'
     if position not in ('below', 'above'):
@@ -662,7 +751,7 @@ def stack_cards(table, card_ids, target_uid, position='above'):
     target_location = locate_card(table, target_uid)
     if not target_location:
         return False, '重ねる対象のカードが見つかりません。'
-    if target_location[1] not in ('battle', 'shields'):
+    if not allow_any_zone and target_location[1] not in ('battle', 'shields'):
         return False, '重ねる対象はバトルゾーンまたはシールドゾーンのカードだけです。'
     target = target_location[3]
     moving = []
@@ -700,6 +789,11 @@ def stack_descendants(item):
         for child in stack.get(side, []):
             yield child
             yield from stack_descendants(child)
+
+
+def top_stack_item(item):
+    stack = stack_parts(item)
+    return top_stack_item(stack['above'][-1]) if stack['above'] else item
 
 
 def can_move_item(item, zone):
@@ -765,20 +859,39 @@ def apply_command(table, command, body):
         log_event(table, '{} が手札を{}へ{}にしました。'.format(player['name'], label, '公開' if value else '非公開'))
         return True, ''
 
+    if command == 'set_hand_card_visibility':
+        items = selected_items(table, body.get('card_ids', []))
+        if not items:
+            return False, '相手に見せる手札を選択してください。'
+        for item in items:
+            located = locate_card(table, item['uid'])
+            if not located or located[1] != 'hand':
+                return False, '手札のカードだけ相手に見せられます。'
+        value = bool(body.get('value', True))
+        for item in items:
+            for card in [item, *stack_descendants(item)]:
+                card['shown_to_opponent'] = value
+        player_name = table['players'][locate_card(table, items[0]['uid'])[0]]['name']
+        log_event(table, '{} が手札{}枚を相手に{}。'.format(
+            player_name, count_stack_items(items), '見せました' if value else '隠しました',
+        ))
+        return True, ''
+
     if command == 'set_note':
         items = selected_items(table, body.get('card_ids', []))
-        if len(items) != 1:
-            return False, 'メモを付けるカードを1枚選択してください。'
+        if not items:
+            return False, 'メモを付けるカードを選択してください。'
         note = str(body.get('note') or '').strip()
         if len(note) > 120:
             return False, 'メモは120文字以内にしてください。'
-        items[0]['note'] = note
-        log_event(table, 'カードのメモを{}しました。'.format('更新' if note else '削除'))
+        for item in items:
+            top_stack_item(item)['note'] = note
+        log_event(table, '{}枚のカードのメモを{}しました。'.format(len(items), '更新' if note else '削除'))
         return True, ''
 
     if command == 'end_turn':
         table['active_player'] = 1 - table['active_player']
-        if table['active_player'] == 0:
+        if table['active_player'] == table.get('first_player', 0):
             table['turn'] += 1
         log_event(table, '{} のターンになりました。'.format(table['players'][table['active_player']]['name']))
         return True, ''
@@ -807,13 +920,16 @@ def apply_command(table, command, body):
         log_event(table, '{} の山札をシャッフルしました。'.format(table['players'][player_index]['name']))
         return True, ''
 
+    if command == 'restart_game':
+        return restart_table(table)
+
     if command == 'move':
         position = body.get('position', 'append')
-        if body.get('keep_face_down') and body.get('zone') == 'mana':
+        if body.get('keep_face_down') and body.get('zone') in ('mana', 'waiting'):
             position = 'keep_face_down'
         ok, error = move_cards(
             table, body.get('card_ids', []), body.get('zone'),
-            int(body.get('target_player', 0)), position,
+            int(body.get('target_player', 0)), position, bool(body.get('preserve_stack')),
         )
         if ok:
             log_event(table, 'カードを{}へ移動しました。'.format(ZONE_LABELS[body.get('zone')]))
@@ -825,6 +941,7 @@ def apply_command(table, command, body):
             body.get('card_ids', []),
             body.get('target_id'),
             body.get('position', 'above'),
+            bool(body.get('drag_drop')),
         )
         if ok:
             log_event(table, 'カードを別のカードに重ねました。')
@@ -843,6 +960,8 @@ def apply_command(table, command, body):
             if located:
                 if command == 'flip':
                     located[3]['face_up'] = value
+                    if value:
+                        located[3]['private_to_opponent'] = False
                 else:
                     located[3]['tapped'] = value
                 changed += 1
@@ -870,15 +989,6 @@ def apply_command(table, command, body):
         item['card'] = card_view(other)
         item['face_up'] = True
         log_event(table, '超次元カードを裏返しました。')
-        return True, ''
-
-    if command == 'swap':
-        first = locate_card(table, body.get('first'))
-        second = locate_card(table, body.get('second'))
-        if not first or not second or first[0:2] != second[0:2] or first[1] == 'shields' or first[4] is not second[4]:
-            return False, '同じゾーンのカード同士だけ交換できます。'
-        cards = first[4]
-        cards[first[2]], cards[second[2]] = cards[second[2]], cards[first[2]]
         return True, ''
 
     return False, '不明なコマンドです。'
@@ -1017,7 +1127,7 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             if not card:
                 self.send_json({'error': 'カードが見つかりません。'}, HTTPStatus.NOT_FOUND)
                 return
-            image_path = image_file_for(card)
+            image_path = image_file_for(card, query.get('index', ['0'])[0])
             if image_path:
                 self.send_file(image_path)
                 return
@@ -1128,9 +1238,15 @@ class SimulatorHandler(BaseHTTPRequestHandler):
                     }
                 else:
                     table['players'][1] = new_player
+                    table['initial_setups'][1] = {
+                        'name': body.get('player_name', 'プレイヤー2'),
+                        'cards': list(fill_deck(own['cards'])),
+                        'special': own,
+                    }
                     table['player_tokens'][1] = uuid.uuid4().hex
                     table['status'] = 'ready'
                     log_event(table, '{} が参加しました。対戦を開始できます。'.format(table['players'][1]['name']))
+                    choose_first_player(table)
                     response = {
                         'table': public_table(table, 1),
                         'room_id': room_id,
@@ -1165,7 +1281,13 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             if not any(sections.values()):
                 self.send_json({'error': '保存できるカードがありません。'}, HTTPStatus.BAD_REQUEST)
                 return
-            deck_data = {zone: [card['id'] for card in cards] for zone, cards in sections.items()}
+            deck_data = {
+                zone: [
+                    {'id': card['id'], 'image_index': int(card.get('_image_index', 0))}
+                    for card in cards
+                ]
+                for zone, cards in sections.items()
+            }
             deck_data['allow_size_exceptions'] = body.get('allow_size_exceptions') is True
             saved_at = datetime.now(timezone.utc).isoformat()
             deck_id = 'deck-{}-{}.json'.format(
@@ -1177,7 +1299,7 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             deck_path = DECK_DIRECTORY / deck_id
             deck_path.write_text(json.dumps({
                 'format': 'dm-table-forge-deck',
-                'version': 3,
+                'version': 4,
                 'name': name,
                 **deck_data,
                 'saved_at': saved_at,

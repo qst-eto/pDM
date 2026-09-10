@@ -55,7 +55,7 @@
   <section id="game-screen" class="game-screen hidden">
     <header class="gamebar">
       <div class="game-brand"><span class="brand-mark">✦</span><div><p class="eyebrow">PRIVATE TABLE / LOCAL SERVER</p><strong>DM Table Forge</strong></div></div>
-      <div class="game-status"><span id="turn-badge" class="turn-badge">WAITING</span><span id="table-id" class="muted"></span><span id="spectator-count" class="muted hidden"></span><button id="copy-room" class="icon-button hidden">部屋番号をコピー</button></div>
+      <div class="game-status"><span id="turn-badge" class="turn-badge">WAITING</span><span id="first-player" class="first-player muted hidden"></span><span id="table-id" class="muted"></span><span id="spectator-count" class="muted hidden"></span><button id="copy-room" class="icon-button hidden">部屋番号をコピー</button></div>
       <div class="game-tools"><button id="hand-window-toggle" class="icon-button hidden">手札ウィンドウ</button><button id="zones-toggle" class="icon-button">ゾーン表示</button><button id="display-toggle" class="icon-button">表示設定</button><button id="fullscreen" class="icon-button">全画面</button><button id="back-setup" class="icon-button">デッキへ戻る</button></div>
     </header>
     <div id="stack-mode-bar" class="stack-mode-bar hidden"></div>
@@ -111,7 +111,7 @@
       </section>
       </div>
     </main>
-    <footer class="actionbar"><div id="selection-count" class="selection-count">0枚選択中</div><button data-action="tap" class="button button-secondary">タップ</button><button data-action="untap" class="button button-secondary">アンタップ</button><button data-action="face_up" class="button button-secondary">表向き</button><button data-action="face_down" class="button button-secondary">裏向き</button><button id="shuffle-deck" data-command="shuffle_deck" data-player="0" class="button button-secondary">山札をシャッフル</button><button id="end-turn" class="button button-primary">ターン終了</button><button id="clear-selection" class="button button-quiet">選択解除</button></footer>
+    <footer class="actionbar"><div id="selection-count" class="selection-count">0枚選択中</div><button data-action="tap" class="button button-secondary">タップ</button><button data-action="untap" class="button button-secondary">アンタップ</button><button data-action="face_up" class="button button-secondary">表向き</button><button data-action="face_down" class="button button-secondary">裏向き</button><button id="shuffle-deck" data-command="shuffle_deck" data-player="0" class="button button-secondary">山札をシャッフル</button><button id="restart-game" class="button button-secondary">対戦をやり直す</button><button id="end-turn" class="button button-primary">ターン終了</button><button id="clear-selection" class="button button-quiet">選択解除</button></footer>
   </section>
 
   <div id="context-menu" class="context-menu hidden"></div>

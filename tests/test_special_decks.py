@@ -181,7 +181,8 @@ class SpecialDeckTests(unittest.TestCase):
         saved = call('/api/decks', self.config(name='特殊枠テスト'))['deck']
         loaded = call('/api/decks/' + saved['id'])['deck']
         for key in ('cards', 'extra', 'gachi', 'battle'):
-            self.assertEqual(loaded[key], self.config()[key])
+            self.assertEqual([entry['id'] for entry in loaded[key]], self.config()[key])
+            self.assertTrue(all(entry['image_index'] == 0 for entry in loaded[key]))
         self.assertEqual(call('/api/decks')['decks'][0]['gachi_count'], 12)
         table = call('/api/tables', dict(deck=loaded['cards'], extra=loaded['extra'], gachi=loaded['gachi'], battle=loaded['battle']))['table']
         self.addCleanup(server.TABLES.pop, table['id'], None)

@@ -48,6 +48,12 @@ async function run() {
         const body = route.request().postDataJSON();
         commands.push(body);
         if (body.command === 'view_deck') return json({ table, deck_view: [card('deck-visible'), card('deck-hidden', false)] });
+        if (body.command === 'set_hand_card_visibility') {
+          const selected = table.players[0].zones.hand.filter((item) => body.card_ids.includes(item.uid));
+          assert.equal(selected.length, body.card_ids.length);
+          selected.forEach((item) => { item.shown_to_opponent = body.value; });
+          return json({ table: counts(table) });
+        }
         assert.equal(body.command, 'move');
         const player = table.players[0];
         const sources = Object.values(player.zones).concat([player.shields]);
@@ -268,6 +274,18 @@ async function run() {
     await hand.goto(origin + '/hand.html?table=layout');
     await hand.locator('.hand-card').first().waitFor();
     const handMenu = hand.locator('#hand-menu');
+    const shownSource = hand.locator('.hand-card').first();
+    const shownUid = await shownSource.getAttribute('data-uid');
+    await shownSource.click({ button: 'right' });
+    assert.equal(await handMenu.locator('[data-hand-show]').textContent(), '相手に見せる');
+    await handMenu.locator('[data-hand-show]').click();
+    await hand.locator(`.hand-card[data-uid="${shownUid}"] .shown-card-badge`).waitFor();
+    assert.equal(commands.at(-1).command, 'set_hand_card_visibility');
+    assert.deepEqual(commands.at(-1).card_ids, [shownUid]);
+    await hand.locator(`.hand-card[data-uid="${shownUid}"]`).click({ button: 'right' });
+    assert.equal(await handMenu.locator('[data-hand-show]').textContent(), '相手に見せるのをやめる');
+    await handMenu.locator('[data-hand-show]').click();
+    await hand.locator(`.hand-card[data-uid="${shownUid}"] .shown-card-badge`).waitFor({ state: 'detached' });
     for (const zone of ['extra', 'gachi', 'abyss']) {
       const source = hand.locator('.hand-card').first();
       const uid = await source.getAttribute('data-uid');
@@ -284,7 +302,7 @@ async function run() {
     const waitingSource = hand.locator('.hand-card').first();
     const waitingUid = await waitingSource.getAttribute('data-uid');
     await waitingSource.click({ button: 'right' });
-    await handMenu.locator('[data-zone="waiting"]').click();
+    await handMenu.locator('[data-zone="waiting"]:not([data-keep-face-down])').click();
     await hand.locator(`.hand-card[data-uid="${waitingUid}"]`).waitFor({ state: 'detached' });
     assert.equal(commands.at(-1).zone, 'waiting');
     // Convert earlier saved settings and persist independent weights across a real reload.
