@@ -64,6 +64,10 @@
         <div class="viewer-title">CARD VIEW</div>
         <div id="viewer-content" class="viewer-content"><span class="muted">カードにカーソルを合わせると、ここに拡大表示します</span></div>
       </aside>
+      <aside id="game-log" class="game-log">
+        <div class="viewer-title">GAME LOG</div>
+        <div id="game-log-content" class="game-log-content"><p class="muted">対戦開始後のコイントスとカード移動を表示します。</p></div>
+      </aside>
       <div class="field-board">
       <section class="player-area opponent-area">
         <div class="side-title"><span class="player-label">OPPONENT</span><strong id="opponent-name">対戦相手</strong><span id="opponent-counts" class="muted"></span></div>
@@ -115,10 +119,13 @@
   </section>
 
   <div id="context-menu" class="context-menu hidden"></div>
+  <div id="image-variant-picker" class="modal hidden"><div class="modal-card image-variant-modal"><div class="modal-head"><div><p class="eyebrow">CARD IMAGE</p><h2 id="image-variant-title">使用する画像を選ぶ</h2></div><button id="close-image-variant" class="icon-button">閉じる</button></div><p class="muted">画像を一覧で確認し、デッキに使用するものを選択してください。</p><div id="image-variant-grid" class="image-variant-grid"></div></div></div>
   <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="battle" class="button button-secondary">バトルゾーンへ</button><button data-inspector-move="waiting" class="button button-secondary">待機ゾーンへ</button><button data-inspector-move="extra" class="button button-secondary">超次元へ</button><button data-inspector-move="gachi" class="button button-secondary">ガチャレンジへ</button><button data-inspector-move="abyss" class="button button-secondary">深淵へ</button><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
   <div id="zone-settings" class="zone-settings hidden"><p class="eyebrow">VISIBLE ZONES</p><label><input type="checkbox" data-zone-toggle="extra" checked> 超次元</label><label><input type="checkbox" data-zone-toggle="gachi" checked> ガチャレンジ</label><label><input type="checkbox" data-zone-toggle="abyss" checked> 深淵</label></div>
   <div id="display-settings" class="display-settings hidden">
     <p class="eyebrow">DISPLAY SETTINGS</p>
+    <label class="settings-toggle"><span>マナの簡易表示</span><input id="simple-mana-display" type="checkbox"></label>
+    <label class="settings-toggle"><span>自分のターン開始時に自動ドロー</span><input id="auto-draw" type="checkbox" checked></label>
     <label>カードサイズ <input id="card-scale" type="range" min="0.9" max="1.25" step="0.05" value="1.1"><output id="card-scale-value">110%</output></label>
     <label>カード縦比率 <input id="card-height-percent" type="range" min="60" max="100" step="5" value="100"><output id="card-height-percent-value">100%</output></label>
     <fieldset><legend>フィールド全体の高さ</legend>

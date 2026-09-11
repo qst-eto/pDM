@@ -19,7 +19,12 @@ function fixture() {
     shields: Array.from({ length: 5 }, (_, i) => card(`${p}-shield-${i}`, false)),
     shield_count: 5, counts: {},
   }));
-  return { id: 'layout', players, turn: 1, active_player: 0, log: [] };
+  const game_log = Array.from({ length: 30 }, (_, index) => ({
+    kind: index === 0 ? 'coin' : 'move',
+    turn: Math.floor(index / 3) + 1,
+    message: index === 0 ? 'コイントスの結果、テスト が先攻です。' : `カード${index}を手札から墓地へ移動しました。`,
+  }));
+  return { id: 'layout', players, turn: 1, active_player: 0, log: [], game_log };
 }
 function counts(table) {
   table.players.forEach((p) => { p.counts = Object.fromEntries(zones.map((z) => [z, p.zones[z].length])); });
@@ -108,6 +113,19 @@ async function run() {
     const viewer = await page.locator('#viewer-content').boundingBox();
     assert.ok(preview.x >= viewer.x && preview.x + preview.width <= viewer.x + viewer.width);
     assert.ok(Math.abs(preview.width / preview.height - ratio) < 0.003);
+    const leftPanels = await page.evaluate(() => {
+      const rect = (selector) => {
+        const box = document.querySelector(selector).getBoundingClientRect();
+        return { x: box.x, y: box.y, right: box.right, bottom: box.bottom, width: box.width, height: box.height };
+      };
+      const log = document.querySelector('#game-log-content');
+      return { viewer: rect('#card-viewer'), log: rect('#game-log'), board: rect('.field-board'), scrollable: log.scrollHeight > log.clientHeight };
+    });
+    assert.ok(leftPanels.viewer.bottom < leftPanels.log.y, JSON.stringify(leftPanels));
+    assert.ok(Math.abs(leftPanels.viewer.x - leftPanels.log.x) < .1 && Math.abs(leftPanels.viewer.width - leftPanels.log.width) < .1);
+    assert.ok(leftPanels.board.x > leftPanels.viewer.right);
+    assert.equal(leftPanels.scrollable, true);
+    assert.match(await page.locator('#game-log-content').textContent(), /コイントスの結果/);
     const screenshot = path.join(os.tmpdir(), 'dm-field-layout-650x909.png');
     await page.screenshot({ path: screenshot });
     console.log('SCREENSHOT ' + screenshot);

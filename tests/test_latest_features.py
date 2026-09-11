@@ -49,8 +49,9 @@ class LatestFeatureTests(unittest.TestCase):
         self.assertEqual(root['note'], '')
         self.assertEqual(top['note'], '最上面')
         self.assertTrue(server.move_cards(table, [root['uid']], 'mana', preserve_stack=True)[0])
-        self.assertEqual(len(table['players'][0]['zones']['mana']), 1)
+        self.assertEqual(len(table['players'][0]['zones']['mana']), 2)
         self.assertEqual(server.count_stack_items(table['players'][0]['zones']['mana']), 2)
+        self.assertTrue(all(not item['stack']['above'] and not item['stack']['below'] for item in table['players'][0]['zones']['mana']))
         self.assertTrue(server.move_cards(table, [top['uid']], 'graveyard')[0])
         self.assertEqual(root['stack']['above'], [])
         self.assertEqual(table['players'][0]['zones']['graveyard'][0]['uid'], top['uid'])
@@ -87,13 +88,37 @@ class LatestFeatureTests(unittest.TestCase):
         self.assertNotEqual(table['players'][0]['zones']['hand'][0]['uid'], old_uid)
         self.assertIn('コイントス', table['log'][-1])
 
-    def test_drag_drop_stacking_can_target_non_battle_zone(self):
+    def test_stacking_is_rejected_outside_battle_and_shields(self):
         table = {'players': [server.empty_player('self'), server.empty_player('opponent')], 'log': []}
         source = server.make_instance(plain_card(1))
         target = server.make_instance(plain_card(2))
         table['players'][0]['zones']['hand'] = [source, target]
-        self.assertTrue(server.stack_cards(table, [source['uid']], target['uid'], allow_any_zone=True)[0])
+        before = list(table['players'][0]['zones']['hand'])
+        self.assertFalse(server.stack_cards(table, [source['uid']], target['uid'], allow_any_zone=True)[0])
+        self.assertEqual(table['players'][0]['zones']['hand'], before)
+        self.assertTrue(server.move_cards(table, [target['uid']], 'battle')[0])
+        self.assertTrue(server.stack_cards(table, [source['uid']], target['uid'])[0])
         self.assertEqual(target['stack']['above'][0]['uid'], source['uid'])
+
+    def test_turn_start_auto_draw_can_be_disabled_and_skips_first_player_opening(self):
+        first_card = plain_card(1, '一人目の札')
+        second_card = plain_card(2, '二人目の札')
+        table = server.new_online_room('一人目', [first_card])
+        table['players'][1] = server.prepare_player('二人目', [second_card])
+        table['initial_setups'][1] = {'name': '二人目', 'cards': server.fill_deck([second_card]), 'special': {}}
+        table['status'] = 'ready'
+        table['first_player'] = 0
+        table['active_player'] = 0
+        self.assertEqual(len(table['players'][0]['zones']['hand']), 5)
+
+        self.assertTrue(server.apply_command(table, 'end_turn', {})[0])
+        self.assertEqual(len(table['players'][1]['zones']['hand']), 6)
+        self.assertEqual(len(table['players'][1]['zones']['deck']), 29)
+
+        self.assertTrue(server.apply_command(table, 'set_auto_draw', {'player': 0, 'value': False})[0])
+        self.assertTrue(server.apply_command(table, 'end_turn', {})[0])
+        self.assertEqual(len(table['players'][0]['zones']['hand']), 5)
+        self.assertEqual(len(table['players'][0]['zones']['deck']), 30)
 
 
 if __name__ == '__main__':

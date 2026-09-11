@@ -35,6 +35,7 @@ INITIAL_SHIELDS = 5
 RANDOM_SOURCE = random.SystemRandom()
 
 ZONES = ('deck', 'hand', 'mana', 'graveyard', 'waiting', 'battle', 'extra', 'gachi', 'abyss')
+STACKABLE_ZONES = ('battle', 'shields')
 ZONE_LABELS = {
     'shields': 'シールドゾーン',
     'deck': '山札',
@@ -306,6 +307,7 @@ def empty_player(name):
         'shields': [],
         'hand_revealed_to_opponent': False,
         'hand_visible_to_spectators': False,
+        'auto_draw_enabled': True,
     }
 
 
@@ -407,6 +409,8 @@ def new_table(player_name, deck_cards, opponent_cards, special_decks=None, oppon
         'first_player': 0,
         'start_method': 'manual',
         'log': [],
+        'game_log': [],
+        'selections': [[], []],
     }
     log_event(table, '手動対戦テーブルを作成しました。')
     return table
@@ -433,6 +437,8 @@ def new_online_room(player_name, deck_cards, special_decks=None):
         'player_tokens': [uuid.uuid4().hex, None],
         'spectator_tokens': [],
         'log': [],
+        'game_log': [],
+        'selections': [[], []],
     }
     log_event(table, '通信対戦の部屋を作成しました。対戦相手を待っています。')
     return table
@@ -444,7 +450,9 @@ def choose_first_player(table):
     table['first_player'] = first
     table['active_player'] = first
     table['start_method'] = 'coin'
-    log_event(table, 'コイントスの結果、{} が先攻です。'.format(table['players'][first]['name']))
+    message = 'コイントスの結果、{} が先攻です。'.format(table['players'][first]['name'])
+    log_event(table, message)
+    add_game_log(table, 'coin', {0: message, 1: message, 'spectator': message})
     return first
 
 
@@ -452,12 +460,17 @@ def restart_table(table):
     setups = table.get('initial_setups') or []
     if len(setups) != 2 or not all(setups):
         return False, '開始時のデッキ構成が見つかりません。'
+    auto_draw = [player.get('auto_draw_enabled', True) for player in table['players']]
     table['players'] = [
         prepare_player(setup['name'], setup['cards'], setup.get('special'))
         for setup in setups
     ]
+    for index, enabled in enumerate(auto_draw):
+        table['players'][index]['auto_draw_enabled'] = enabled
     table['turn'] = 1
     table['log'] = []
+    table['game_log'] = []
+    table['selections'] = [[], []]
     if table.get('mode') == 'online':
         choose_first_player(table)
     else:
@@ -470,6 +483,27 @@ def restart_table(table):
 def log_event(table, message):
     table['log'].append(message)
     table['log'] = table['log'][-100:]
+
+
+def add_game_log(table, kind, messages):
+    """閲覧者ごとの安全な文面だけを保持する公開ログ。"""
+    normalized = {str(key): str(value) for key, value in messages.items() if value}
+    table.setdefault('game_log', []).append({
+        'id': uuid.uuid4().hex[:12],
+        'kind': kind,
+        'turn': table.get('turn', 1),
+        'messages': normalized,
+    })
+    table['game_log'] = table['game_log'][-200:]
+
+
+def public_game_log(table, viewer_index=None, viewer_role='player'):
+    key = 'spectator' if viewer_role == 'spectator' else str(viewer_index if viewer_index in (0, 1) else 0)
+    return [
+        {'id': entry['id'], 'kind': entry['kind'], 'turn': entry.get('turn', 1), 'message': entry['messages'][key]}
+        for entry in table.get('game_log', [])
+        if key in entry.get('messages', {})
+    ]
 
 
 def stack_parts(item):
@@ -575,6 +609,7 @@ def public_player(player, player_index, hand_visible=False, individual_hand_visi
         'shield_count': count_stack_items(player['shields']),
         'hand_revealed_to_opponent': bool(player.get('hand_revealed_to_opponent')),
         'hand_visible_to_spectators': bool(player.get('hand_visible_to_spectators')),
+        'auto_draw_enabled': bool(player.get('auto_draw_enabled', True)),
     }
 
 
@@ -608,6 +643,13 @@ def public_table(table, viewer_index=None, viewer_role='player'):
             hand_visible,
             individual_hand_visible=relation == 'opponent',
         ))
+    if online and viewer_role == 'spectator':
+        remote_selected = [uid for selection in table.get('selections', [[], []]) for uid in selection]
+    elif online and viewer_index in (0, 1):
+        selections = table.get('selections', [[], []])
+        remote_selected = list(selections[1 - viewer_index]) if len(selections) == 2 else []
+    else:
+        remote_selected = []
     return {
         'id': table['id'],
         'room_id': table.get('room_id', table['id']),
@@ -629,6 +671,8 @@ def public_table(table, viewer_index=None, viewer_role='player'):
         # 閲覧者自身を常に player 0 として返し、両端末で手前側を自分にする。
         'players': players,
         'log': table['log'],
+        'game_log': public_game_log(table, viewer_index, viewer_role),
+        'remote_selected_card_ids': remote_selected,
     }
 
 
@@ -650,6 +694,35 @@ def online_viewer(table, token):
     return None
 
 
+def leave_online_room(table, token):
+    viewer = online_viewer(table, token)
+    if not viewer:
+        return False, False
+    if viewer['role'] == 'spectator':
+        table['spectator_tokens'].remove(token)
+        return True, False
+
+    leaving = viewer['player_index']
+    other = 1 - leaving
+    if not table.get('player_tokens', [None, None])[other]:
+        return True, True
+    if leaving == 0:
+        table['players'][0] = table['players'][1]
+        table['initial_setups'][0] = table['initial_setups'][1]
+        table['player_tokens'][0] = table['player_tokens'][1]
+    table['players'][1] = empty_player('対戦相手を待っています')
+    table['initial_setups'][1] = None
+    table['player_tokens'][1] = None
+    table['status'] = 'waiting'
+    table['turn'] = 1
+    table['active_player'] = 0
+    table['first_player'] = None
+    table['game_log'] = []
+    table['selections'] = [[], []]
+    log_event(table, '対戦相手が退出したため待機状態に戻りました。')
+    return True, False
+
+
 def command_card_ids(command, body):
     if command in ('move', 'stack', 'flip', 'tap', 'turn_over', 'set_note', 'set_hand_card_visibility'):
         return list(body.get('card_ids', []))
@@ -658,12 +731,14 @@ def command_card_ids(command, body):
 
 def authorize_online_command(table, viewer_index, command, body):
     """通信対戦の相対 player 指定を内部番号へ直し、相手カードの操作を拒否する。"""
-    if table.get('status') != 'ready' and command not in ('view_deck', 'set_hand_visibility'):
+    if table.get('status') != 'ready' and command not in ('view_deck', 'set_hand_visibility', 'set_auto_draw', 'set_selection'):
         return None, '対戦相手が参加するまでカード操作はできません。'
     mapped = dict(body)
+    if command == 'set_selection':
+        mapped['selection_player'] = viewer_index
     if command == 'end_turn' and table.get('active_player') != viewer_index:
         return None, '自分のターンにだけターンを終了できます。'
-    if command in ('draw', 'view_deck', 'shuffle_deck', 'set_hand_visibility'):
+    if command in ('draw', 'view_deck', 'shuffle_deck', 'set_hand_visibility', 'set_auto_draw'):
         try:
             relative_player = int(body.get('player', 0))
         except (TypeError, ValueError):
@@ -709,7 +784,7 @@ def move_cards(table, card_ids, target_zone, target_player=0, position='append',
         if not detach_item(table, item):
             return False, '対象カードが見つかりません。'
 
-    if not preserve_stack:
+    if not preserve_stack or target_zone not in STACKABLE_ZONES:
         moving = list(flattened_stack_items(moving))
 
     keep_face_down = bool(position == 'keep_face_down')
@@ -751,7 +826,7 @@ def stack_cards(table, card_ids, target_uid, position='above', allow_any_zone=Fa
     target_location = locate_card(table, target_uid)
     if not target_location:
         return False, '重ねる対象のカードが見つかりません。'
-    if not allow_any_zone and target_location[1] not in ('battle', 'shields'):
+    if target_location[1] not in STACKABLE_ZONES:
         return False, '重ねる対象はバトルゾーンまたはシールドゾーンのカードだけです。'
     target = target_location[3]
     moving = []
@@ -837,7 +912,137 @@ def flattened_stack_items(items):
             yield from flattened_stack_items(stack.get('above', []))
 
 
+def card_identity_visible(table, owner_index, zone, item, audience):
+    """現在の盤面で、対象の閲覧者がカード名を知れるかを判定する。"""
+    face_up = bool(item.get('face_up'))
+    player = table['players'][owner_index]
+    if audience in (0, 1) and audience == owner_index:
+        if zone == 'deck':
+            deck = player['zones']['deck']
+            return face_up and bool(deck) and deck[0] is item
+        if zone == 'waiting' and item.get('private_to_opponent'):
+            return True
+        return face_up
+    if zone == 'deck':
+        deck = player['zones']['deck']
+        return face_up and bool(deck) and deck[0] is item
+    if zone == 'hand':
+        if audience == 'spectator':
+            return face_up and bool(player.get('hand_visible_to_spectators'))
+        return face_up and bool(player.get('hand_revealed_to_opponent') or item.get('shown_to_opponent'))
+    if zone == 'shields':
+        return face_up
+    if zone == 'waiting' and item.get('private_to_opponent'):
+        return False
+    return face_up
+
+
+def capture_movement(table, card_ids):
+    records = []
+    seen = set()
+    for root in selected_items(table, card_ids):
+        for item in [root, *stack_descendants(root)]:
+            if item['uid'] in seen:
+                continue
+            seen.add(item['uid'])
+            located = locate_card(table, item['uid'])
+            if not located:
+                continue
+            owner_index, zone = located[0], located[1]
+            records.append({
+                'uid': item['uid'],
+                'item': item,
+                'name': str(item.get('card', {}).get('cardname') or '名称不明のカード'),
+                'source_zone': zone,
+                'known_before': {
+                    audience: card_identity_visible(table, owner_index, zone, item, audience)
+                    for audience in (0, 1, 'spectator')
+                },
+            })
+    return records
+
+
+def log_movement(table, records):
+    for record in records:
+        located = locate_card(table, record['uid'])
+        if not located:
+            continue
+        owner_index, target_zone, item = located[0], located[1], located[3]
+        messages = {}
+        for audience in (0, 1, 'spectator'):
+            known = record['known_before'].get(audience, False) or card_identity_visible(
+                table, owner_index, target_zone, item, audience,
+            )
+            name = '「{}」'.format(record['name']) if known else '非公開カード'
+            messages[audience] = '{}：{} → {}'.format(
+                name, ZONE_LABELS.get(record['source_zone'], record['source_zone']),
+                ZONE_LABELS.get(target_zone, target_zone),
+            )
+        add_game_log(table, 'move', messages)
+
+
+def prune_selections(table):
+    existing = set()
+    for player_index, player in enumerate(table['players']):
+        for zone in ZONES:
+            existing.update(item['uid'] for _, _, _, item, _ in iter_stack_items(player['zones'][zone], player_index, zone))
+        existing.update(item['uid'] for _, _, _, item, _ in iter_stack_items(player['shields'], player_index, 'shields'))
+    selections = table.setdefault('selections', [[], []])
+    while len(selections) < 2:
+        selections.append([])
+    for index in (0, 1):
+        selections[index] = [uid for uid in selections[index] if uid in existing]
+
+
+def draw_cards(table, player_index, count=1):
+    drawn = 0
+    player = table['players'][player_index]
+    for _ in range(max(0, count)):
+        if not player['zones']['deck']:
+            break
+        uid = player['zones']['deck'][0]['uid']
+        movement = capture_movement(table, [uid])
+        ok, _ = move_cards(table, [uid], 'hand', player_index)
+        if not ok:
+            break
+        log_movement(table, movement)
+        drawn += 1
+    prune_selections(table)
+    return drawn
+
+
 def apply_command(table, command, body):
+    if command == 'set_selection':
+        try:
+            player_index = int(body.get('selection_player', 0))
+        except (TypeError, ValueError):
+            return False, 'プレイヤー指定が不正です。'
+        card_ids = body.get('card_ids', [])
+        if player_index not in (0, 1) or not isinstance(card_ids, list) or len(card_ids) > 100:
+            return False, '選択情報が不正です。'
+        normalized = []
+        for uid in card_ids:
+            uid = str(uid)
+            if not locate_card(table, uid):
+                return False, '選択したカードが見つかりません。'
+            if uid not in normalized:
+                normalized.append(uid)
+        selections = table.setdefault('selections', [[], []])
+        while len(selections) < 2:
+            selections.append([])
+        selections[player_index] = normalized
+        return True, ''
+
+    if command == 'set_auto_draw':
+        try:
+            player_index = int(body.get('player', 0))
+        except (TypeError, ValueError):
+            return False, 'プレイヤー指定が不正です。'
+        if player_index not in (0, 1):
+            return False, 'プレイヤー指定が不正です。'
+        table['players'][player_index]['auto_draw_enabled'] = bool(body.get('value', True))
+        return True, ''
+
     if command == 'set_hand_visibility':
         try:
             player_index = int(body.get('player', 0))
@@ -894,21 +1099,15 @@ def apply_command(table, command, body):
         if table['active_player'] == table.get('first_player', 0):
             table['turn'] += 1
         log_event(table, '{} のターンになりました。'.format(table['players'][table['active_player']]['name']))
+        if table['players'][table['active_player']].get('auto_draw_enabled', True):
+            draw_cards(table, table['active_player'], 1)
         return True, ''
 
     if command == 'draw':
         player_index = int(body.get('player', 0))
         count = max(1, min(int(body.get('count', 1)), 10))
-        player = table['players'][player_index]
-        drawn = 0
-        for _ in range(count):
-            if not player['zones']['deck']:
-                break
-            item = player['zones']['deck'].pop(0)
-            item['face_up'] = True
-            player['zones']['hand'].append(item)
-            drawn += 1
-        log_event(table, '{} が{}枚ドローしました。'.format(player['name'], drawn))
+        drawn = draw_cards(table, player_index, count)
+        log_event(table, '{} が{}枚ドローしました。'.format(table['players'][player_index]['name'], drawn))
         return True, ''
 
     if command == 'view_deck':
@@ -924,6 +1123,7 @@ def apply_command(table, command, body):
         return restart_table(table)
 
     if command == 'move':
+        movement = capture_movement(table, body.get('card_ids', []))
         position = body.get('position', 'append')
         if body.get('keep_face_down') and body.get('zone') in ('mana', 'waiting'):
             position = 'keep_face_down'
@@ -933,18 +1133,22 @@ def apply_command(table, command, body):
         )
         if ok:
             log_event(table, 'カードを{}へ移動しました。'.format(ZONE_LABELS[body.get('zone')]))
+            log_movement(table, movement)
+            prune_selections(table)
         return ok, error
 
     if command == 'stack':
+        movement = capture_movement(table, body.get('card_ids', []))
         ok, error = stack_cards(
             table,
             body.get('card_ids', []),
             body.get('target_id'),
             body.get('position', 'above'),
-            bool(body.get('drag_drop')),
         )
         if ok:
             log_event(table, 'カードを別のカードに重ねました。')
+            log_movement(table, movement)
+            prune_selections(table)
         return ok, error
 
     if command in ('flip', 'tap'):
@@ -1197,6 +1401,24 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             self.send_json(response, HTTPStatus.CREATED)
             return
 
+        room_leave_match = re.fullmatch(r'/api/rooms/(\d{6})/leave', path)
+        if room_leave_match:
+            room_id = room_leave_match.group(1)
+            token = self.player_token(parse_qs(parsed.query)) or str(body.get('player_token') or '')
+            with TABLES_LOCK:
+                table = TABLES.get(room_id)
+                if not table or table.get('mode') != 'online':
+                    self.send_json({'left': True, 'room_closed': True})
+                    return
+                left, close_room = leave_online_room(table, token)
+                if not left:
+                    self.send_json({'error': 'この部屋への接続情報を確認できません。'}, HTTPStatus.FORBIDDEN)
+                    return
+                if close_room:
+                    TABLES.pop(room_id, None)
+            self.send_json({'left': True, 'room_closed': close_room})
+            return
+
         room_join_match = re.fullmatch(r'/api/rooms/(\d{6})/join', path)
         if room_join_match:
             room_id = room_join_match.group(1)
@@ -1237,6 +1459,12 @@ class SimulatorHandler(BaseHTTPRequestHandler):
                         'viewer_role': 'spectator',
                     }
                 else:
+                    host_setup = table['initial_setups'][0]
+                    host_auto_draw = table['players'][0].get('auto_draw_enabled', True)
+                    table['players'][0] = prepare_player(
+                        host_setup['name'], host_setup['cards'], host_setup.get('special'),
+                    )
+                    table['players'][0]['auto_draw_enabled'] = host_auto_draw
                     table['players'][1] = new_player
                     table['initial_setups'][1] = {
                         'name': body.get('player_name', 'プレイヤー2'),
@@ -1245,6 +1473,8 @@ class SimulatorHandler(BaseHTTPRequestHandler):
                     }
                     table['player_tokens'][1] = uuid.uuid4().hex
                     table['status'] = 'ready'
+                    table['game_log'] = []
+                    table['selections'] = [[], []]
                     log_event(table, '{} が参加しました。対戦を開始できます。'.format(table['players'][1]['name']))
                     choose_first_player(table)
                     response = {

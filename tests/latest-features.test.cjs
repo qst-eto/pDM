@@ -44,6 +44,7 @@ function fixtureTable() {
   const top = item('stack-top', 3);
   self.zones.battle = [item('stack-root', 1, false, { below: [], above: [lowerTapped, top] }), item('drop-target', 4)];
   self.zones.hand = [item('hand-one', 1), item('hand-two', 2)];
+  self.zones.mana = [item('mana-one', 4)];
   self.zones.graveyard = [item('grave-one', 5)];
   for (const zone of zones) self.counts[zone] = self.zones[zone].length;
   return {
@@ -88,7 +89,9 @@ async function run() {
     await page.locator('[data-add-card="1"]').click();
     assert.equal(await page.locator('#deck-list .deck-chip').count(), 1);
     assert.match(await page.locator('#deck-list .deck-card-quantity').textContent(), /×2/);
-    await page.locator('#deck-list [data-deck-image-card="1"]').selectOption('1');
+    await page.locator('#deck-list [data-deck-image-picker="1"]').click();
+    assert.equal(await page.locator('#image-variant-grid .image-variant-option').count(), 2);
+    await page.locator('#image-variant-grid [data-image-index="1"]').click();
     assert.deepEqual(await page.evaluate(() => state.deck), [{ id: 1, image_index: 1 }, { id: 1, image_index: 1 }]);
     assert.equal(await page.locator('.cost').count(), 0);
 
@@ -100,6 +103,14 @@ async function run() {
       renderTable();
     }, table);
     assert.match(await page.locator('#first-player').textContent(), /先攻：自分/);
+    assert.equal(await page.locator('.self-mana-zone .mana-orb').count(), 0);
+    assert.equal(await page.locator('.self-mana-zone .table-card').count(), 1);
+    await page.locator('#display-toggle').click();
+    await page.locator('#simple-mana-display').check();
+    assert.equal(await page.locator('.self-mana-zone .mana-orb').count(), 1);
+    await page.locator('#simple-mana-display').uncheck();
+    assert.equal(await page.locator('.self-mana-zone .table-card').count(), 1);
+    await page.locator('#display-toggle').click();
 
     await page.locator('.self-hand-zone [data-uid="hand-one"]').click();
     assert.match(await page.locator('#viewer-content').textContent(), /カード1の能力/);
@@ -157,6 +168,21 @@ async function run() {
     assert.equal(stackCommand.drag_drop, true);
     assert.deepEqual(stackCommand.card_ids, ['stack-top']);
 
+    const beforeGraveDrop = commands.length;
+    await page.evaluate(() => {
+      const source = document.querySelector('[data-uid="hand-one"]');
+      const target = document.querySelector('[data-uid="grave-one"]');
+      const transfer = new DataTransfer();
+      source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+      target.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }));
+    });
+    await page.waitForTimeout(50);
+    const graveCommand = commands.find((body, index) => index >= beforeGraveDrop && body.command === 'move');
+    assert.equal(graveCommand.zone, 'graveyard');
+    assert.equal(commands.slice(beforeGraveDrop).some((body) => body.command === 'stack'), false);
+
     const beforeCtrlDrag = commands.length;
     await page.evaluate(() => {
       const source = document.querySelector('[data-uid="stack-root"]');
@@ -181,14 +207,12 @@ async function run() {
       source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }));
     });
     await page.waitForTimeout(50);
-    const flipCommand = commands.find((body, index) => index >= beforeWheel && body.command === 'flip');
-    assert.deepEqual(flipCommand.card_ids, ['hand-one']);
-    assert.equal(flipCommand.value, false);
+    assert.equal(commands.slice(beforeWheel).some((body) => body.command === 'flip'), false);
 
     await page.locator('#restart-game').click();
     assert.equal(commands.at(-1).command, 'restart_game');
     assert.deepEqual(errors, []);
-    console.log('PASS latest UI: grouped image deck, pinned hand preview, multi-menu, inspector menu, full-art stack peeks, drag stack/move/flip, private waiting, restart');
+    console.log('PASS latest UI: image picker, normal/simple mana, pinned preview, stack-only zones, no drag-wheel flip, private waiting, restart');
   } finally {
     await browser.close();
   }

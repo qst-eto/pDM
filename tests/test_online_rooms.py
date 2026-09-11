@@ -161,6 +161,65 @@ class OnlineRoomTests(unittest.TestCase):
         guest_view = self.call(f'/api/tables/{room}', token=guest_token)['table']
         self.assertIsNone(next(item for item in guest_view['players'][1]['zones']['hand'] if item['uid'] == shown_uid)['card'])
 
+    def test_selection_and_privacy_safe_game_log_are_shared(self):
+        room, host_token, guest_token = self.create_and_join()
+        spectator_token = self.call(f'/api/rooms/{room}/join', {'player_name': '観戦者'})['player_token']
+        host_view = self.call(f'/api/tables/{room}', token=host_token)['table']
+        guest_view = self.call(f'/api/tables/{room}', token=guest_token)['table']
+        spectator_view = self.call(f'/api/tables/{room}', token=spectator_token)['table']
+        coin_messages = [view['game_log'][-1]['message'] for view in (host_view, guest_view, spectator_view)]
+        self.assertEqual(len(set(coin_messages)), 1)
+        self.assertIn('コイントス', coin_messages[0])
+
+        guest_hidden_uid = host_view['players'][1]['zones']['hand'][0]['uid']
+        host_selected = self.call(f'/api/tables/{room}/commands', {
+            'command': 'set_selection', 'card_ids': [guest_hidden_uid],
+        }, token=host_token)['table']
+        self.assertIsNone(next(item for item in host_selected['players'][1]['zones']['hand'] if item['uid'] == guest_hidden_uid)['card'])
+        guest_view = self.call(f'/api/tables/{room}', token=guest_token)['table']
+        self.assertEqual(guest_view['remote_selected_card_ids'], [guest_hidden_uid])
+        spectator_view = self.call(f'/api/tables/{room}', token=spectator_token)['table']
+        self.assertIn(guest_hidden_uid, spectator_view['remote_selected_card_ids'])
+
+        drawn_uid = host_view['players'][0]['zones']['deck'][0]['uid']
+        host_after_draw = self.call(f'/api/tables/{room}/commands', {
+            'command': 'draw', 'player': 0, 'count': 1,
+        }, token=host_token)['table']
+        host_message = host_after_draw['game_log'][-1]['message']
+        guest_message = self.call(f'/api/tables/{room}', token=guest_token)['table']['game_log'][-1]['message']
+        spectator_message = self.call(f'/api/tables/{room}', token=spectator_token)['table']['game_log'][-1]['message']
+        self.assertIn('ホストカード', host_message)
+        self.assertNotIn('ホストカード', guest_message)
+        self.assertNotIn('ホストカード', spectator_message)
+        self.assertIn('非公開カード', guest_message)
+
+        self.call(f'/api/tables/{room}/commands', {
+            'command': 'move', 'card_ids': [drawn_uid], 'zone': 'graveyard', 'target_player': 0,
+        }, token=host_token)
+        guest_public_message = self.call(f'/api/tables/{room}', token=guest_token)['table']['game_log'][-1]['message']
+        self.assertIn('ホストカード', guest_public_message)
+        self.assertIn('手札', guest_public_message)
+        self.assertIn('墓地', guest_public_message)
+
+    def test_leaving_a_room_immediately_frees_the_player_slot(self):
+        room, host_token, guest_token = self.create_and_join()
+        self.call(f'/api/rooms/{room}/leave', {'player_token': guest_token}, token=guest_token)
+        waiting = self.call(f'/api/tables/{room}', token=host_token)['table']
+        self.assertEqual(waiting['status'], 'waiting')
+        self.assertEqual(sum(waiting['players'][1]['counts'].values()), 0)
+
+        rejoined = self.call(f'/api/rooms/{room}/join', {
+            'player_name': '再参加', 'deck': [2] * 40,
+        })
+        self.assertEqual(rejoined['viewer_role'], 'player')
+        replacement_token = rejoined['player_token']
+
+        self.call(f'/api/rooms/{room}/leave', {'player_token': host_token}, token=host_token)
+        promoted = self.call(f'/api/tables/{room}', token=replacement_token)['table']
+        self.assertEqual(promoted['status'], 'waiting')
+        self.assertEqual(promoted['players'][0]['name'], '再参加')
+        self.assertEqual(promoted['players'][1]['name'], '対戦相手を待っています')
+
     def test_waiting_zone_and_shared_card_note(self):
         room, host_token, guest_token = self.create_and_join()
         host = self.call(f'/api/tables/{room}', token=host_token)['table']
@@ -202,6 +261,7 @@ class OnlineRoomTests(unittest.TestCase):
         self.assertEqual(restarted['players'][0]['counts']['deck'], 30)
         self.assertNotIn(item['uid'], [card['uid'] for card in restarted['players'][0]['zones']['hand']])
         self.assertIn('コイントス', restarted['start_message'])
+        self.assertIn('コイントス', restarted['game_log'][-1]['message'])
 
     def test_own_move_syncs_and_opponent_operations_are_rejected(self):
         room, host_token, guest_token = self.create_and_join()
