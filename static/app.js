@@ -308,8 +308,8 @@ function renderDeck() {
     node.className = `deck-list${section === state.deckTarget ? '' : ' hidden'}${cards.length ? '' : ' empty-state'}`;
     const groups = [];
     for (const entry of cards.map(deckEntry)) {
-      let group = groups.find((candidate) => candidate.id === entry.id);
-      if (!group) { group = { id: entry.id, entries: [] }; groups.push(group); }
+      let group = groups.find((candidate) => candidate.id === entry.id && candidate.image_index === entry.image_index);
+      if (!group) { group = { id: entry.id, image_index: entry.image_index, entries: [] }; groups.push(group); }
       group.entries.push(entry);
     }
     node.innerHTML = cards.length ? groups.map((group) => {
@@ -317,27 +317,28 @@ function renderDeck() {
       const card = cardForDeckEntry(entry);
       const imageOptions = card.image_options || [];
       const imageFrame = imageOptions.length > 1
-        ? `<button class="deck-card-image" data-deck-image-picker="${group.id}" data-deck-image-section="${section}" aria-label="${escapeHtml(cardName(card))}の画像一覧を開く">${cardArt(card)}<strong class="deck-card-quantity">×${group.entries.length}</strong></button>`
+        ? `<button class="deck-card-image" data-deck-image-picker="${group.id}" data-deck-image-section="${section}" data-deck-image-index="${entry.image_index}" aria-label="${escapeHtml(cardName(card))}の画像一覧を開く">${cardArt(card)}<strong class="deck-card-quantity">×${group.entries.length}</strong></button>`
         : `<div class="deck-card-image">${cardArt(card)}<strong class="deck-card-quantity">×${group.entries.length}</strong></div>`;
       const imageChoice = imageOptions.length > 1 ? '<span class="deck-image-choice">カード画像をクリックして選択</span>' : '';
-      return `<article class="deck-chip" data-deck-card="${group.id}">${imageFrame}<div class="deck-card-info"><span class="card-name">${cardName(card)}</span><small>${escapeHtml(card.packname || '')}</small>${imageChoice}<div class="deck-card-stepper"><button data-remove-deck="${group.id}" aria-label="1枚減らす">−</button><span>${group.entries.length}枚</span><button data-add-deck-copy="${group.id}" aria-label="1枚増やす">＋</button></div></div></article>`;
+      return `<article class="deck-chip" data-deck-card="${group.id}" data-deck-image-index="${entry.image_index}">${imageFrame}<div class="deck-card-info"><span class="card-name">${cardName(card)}</span><small>${escapeHtml(card.packname || '')}</small>${imageChoice}<div class="deck-card-stepper"><button data-remove-deck="${group.id}" data-copy-image="${entry.image_index}" aria-label="1枚減らす">−</button><span>${group.entries.length}枚</span><button data-add-deck-copy="${group.id}" data-copy-image="${entry.image_index}" aria-label="1枚増やす">＋</button></div></div></article>`;
     }).join('') : 'カードライブラリからカードを追加してください。';
     node.querySelectorAll('[data-remove-deck]').forEach((button) => button.addEventListener('click', () => {
       const id = Number(button.dataset.removeDeck);
-      const index = cards.map(deckEntryId).lastIndexOf(id);
+      const imageIndex = Number(button.dataset.copyImage);
+      const index = cards.map((entry) => deckEntryId(entry) === id && deckEntryImageIndex(entry) === imageIndex).lastIndexOf(true);
       if (index >= 0) cards.splice(index, 1);
       renderDeck();
     }));
     node.querySelectorAll('[data-add-deck-copy]').forEach((button) => button.addEventListener('click', () => {
       const id = Number(button.dataset.addDeckCopy);
-      const sample = cards.find((entry) => deckEntryId(entry) === id);
+      const sample = cards.find((entry) => deckEntryId(entry) === id && deckEntryImageIndex(entry) === Number(button.dataset.copyImage));
       const limit = section === 'deck' ? 40 : $('#allow-size-exceptions').checked || section === 'battle' ? 200 : section === 'extra' ? 8 : 12;
       if (cards.length >= limit) { notice(`この枠は${limit}枚までです。`); return; }
       cards.push(deckEntry(sample));
       renderDeck();
     }));
     node.querySelectorAll('[data-deck-image-picker]').forEach((button) => button.addEventListener('click', () => {
-      openDeckImagePicker(button.dataset.deckImageSection, Number(button.dataset.deckImagePicker));
+      openDeckImagePicker(button.dataset.deckImageSection, Number(button.dataset.deckImagePicker), Number(button.dataset.deckImageIndex));
     }));
   }
   const error = deckCountError();
@@ -345,9 +346,9 @@ function renderDeck() {
   $('#start-match').disabled = Boolean(error);
 }
 
-function openDeckImagePicker(section, cardId) {
+function openDeckImagePicker(section, cardId, sourceImageIndex) {
   const cards = deckSection(section);
-  const entry = cards.find((candidate) => deckEntryId(candidate) === cardId);
+  const entry = cards.find((candidate) => deckEntryId(candidate) === cardId && (sourceImageIndex === undefined || deckEntryImageIndex(candidate) === sourceImageIndex));
   const card = state.cardCache.get(cardId);
   if (!entry || !card || (card.image_options || []).length < 2) return;
   const selectedIndex = deckEntryImageIndex(entry);
@@ -363,7 +364,7 @@ function openDeckImagePicker(section, cardId) {
   $('#image-variant-grid').querySelectorAll('[data-image-index]').forEach((button) => button.addEventListener('click', () => {
     const imageIndex = Number(button.dataset.imageIndex);
     cards.forEach((candidate, index) => {
-      if (deckEntryId(candidate) === cardId) cards[index] = { id: cardId, image_index: imageIndex };
+      if (deckEntryId(candidate) === cardId && deckEntryImageIndex(candidate) === selectedIndex) cards[index] = { id: cardId, image_index: imageIndex };
     });
     modal.classList.add('hidden');
     renderDeck();
@@ -391,6 +392,32 @@ async function resolveDeckEntries(entries) {
   const validCards = resolved.filter(Boolean);
   if (validCards.length !== entries.length) throw new Error('DBに存在しないカードIDが含まれています。');
   return validCards.map(({ id }, index) => ({ id, image_index: normalized[index].image_index }));
+}
+
+async function applyImportedDeck(selections, mode) {
+  // Resolve fresh pDM records before changing any deck state. Dscan IDs are not pDM IDs.
+  const records = new Map(await Promise.all([...new Set(selections.map((entry) => entry.id))].map(async (id) => {
+    const card = await api(`/api/cards/${id}`);
+    return [id, card];
+  })));
+  const next = mode === 'append'
+    ? { deck: state.deck.map(deckEntry), ...Object.fromEntries(Object.entries(state.specialDecks).map(([zone, cards]) => [zone, cards.map(deckEntry)])) }
+    : { deck: [], extra: [], gachi: [], battle: [] };
+  for (const selected of selections) {
+    const card = records.get(selected.id);
+    if (!card || !Number.isInteger(selected.image_index) || selected.image_index < 0 ||
+        (card.image_options?.length && !card.image_options.some((option) => Number(option.index) === selected.image_index))) {
+      throw new Error('選択したカード画像が見つかりません。画像を選び直してください。');
+    }
+    const section = ['gachi', 'extra'].includes(card.home_zone) ? card.home_zone : 'deck';
+    next[section].push({ id: selected.id, image_index: selected.image_index });
+  }
+  if (next.deck.length > 40) throw new Error(`通常の山札が${next.deck.length}枚になります。40枚以内になるよう領域を除外してください。`);
+  if (['extra', 'gachi', 'battle'].some((zone) => next[zone].length > 200)) throw new Error('特殊デッキのカードは各枠200枚以内にしてください。');
+  for (const [id, card] of records) state.cardCache.set(id, card);
+  state.deck = next.deck;
+  state.specialDecks = { extra: next.extra, gachi: next.gachi, battle: next.battle };
+  setDeckSection('deck');
 }
 
 async function saveDeckToServer() {
@@ -1518,6 +1545,8 @@ $('#play-mode').addEventListener('change', updatePlayModeOptions);
 $('#room-code').addEventListener('input', (event) => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 6); });
 $('#save-deck').addEventListener('click', saveDeckToServer);
 $('#load-deck').addEventListener('click', loadSavedDecks);
+const deckImageImporter = createDeckImageImporter({ apply: applyImportedDeck, notice });
+$('#import-deck-image').addEventListener('click', () => deckImageImporter.open());
 $('#start-match').addEventListener('click', startTable);
 $('#fullscreen').addEventListener('click', toggleFullScreen);
 $('#end-turn').addEventListener('click', () => sendCommand({ command: 'end_turn' }));

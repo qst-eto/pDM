@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from deck_image_import import analyze_image, ScanError, MAX_UPLOAD_BYTES
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = Path(__file__).resolve().parent / 'static'
@@ -1373,6 +1375,9 @@ class SimulatorHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if path == '/api/deck-imports':
+            self.import_deck_image()
+            return
         body = parse_body(self)
 
         if path == '/api/rooms':
@@ -1581,6 +1586,42 @@ class SimulatorHandler(BaseHTTPRequestHandler):
             return
 
         self.send_json({'error': 'エンドポイントが見つかりません。'}, HTTPStatus.NOT_FOUND)
+
+    def import_deck_image(self):
+        # A raw image body avoids base64 overhead and accepts the browser's File directly.
+        origin = self.headers.get('Origin')
+        if (self.headers.get('Sec-Fetch-Site') == 'cross-site' or
+                (origin and urlparse(origin).netloc != self.headers.get('Host'))):
+            self.close_connection = True
+            self.send_json({'error': 'この画面から画像を選択し直してください。'}, HTTPStatus.FORBIDDEN)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+        except ValueError:
+            length = 0
+        if self.headers.get('Transfer-Encoding') or not 0 < length <= MAX_UPLOAD_BYTES:
+            self.close_connection = True
+            self.send_json({'error': '画像は20MB以下のファイルを選んでください。'}, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            return
+        try:
+            payload = self.rfile.read(length)
+            if len(payload) != length:
+                raise ScanError('画像の送信が中断されました。選択し直してください。')
+            with closing(db_connect()) as connection:
+                rows = connection.execute('SELECT rowid AS id, * FROM cardlist ORDER BY rowid').fetchall()
+            cards = []
+            for row in rows:
+                card = card_from_row(row)
+                cards.append(dict(card_view(card), image_files=card['image_files']))
+            result = analyze_image(payload, cards, IMAGE_ROOTS, image_file_for, PROJECT_ROOT / 'Dscan' / 'cache')
+            self.send_json(result)
+        except ScanError as error:
+            self.send_json({'error': str(error)}, error.status)
+        except Exception:
+            # Keep local paths and stack traces out of an API reachable on the LAN.
+            import traceback
+            traceback.print_exc()
+            self.send_json({'error': '画像解析に失敗しました。画像を選び直すか、サーバーの表示を確認してください。'}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 def run():

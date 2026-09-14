@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/stack-mode.css">
   <link rel="stylesheet" href="/special-zone-menu.css">
+  <link rel="stylesheet" href="/deck-image-import.css">
 </head>
 <body>
   <section id="setup-screen" class="setup-screen">
@@ -29,6 +30,9 @@
       </section>
       <section class="setup-panel deck-builder">
         <div class="panel-heading"><div><p class="eyebrow">YOUR DECK</p><h2>デッキ <span id="deck-count" class="count-badge">0 / 40</span></h2></div><div class="deck-actions"><button id="load-deck" class="button button-secondary">一覧を更新</button><button id="save-deck" class="button button-secondary">サーバーに保存</button><button id="clear-deck" class="button button-quiet">クリア</button></div></div>
+        <div class="deck-section-controls">
+          <button id="import-deck-image" class="button button-primary">画像からデッキを読み込む</button>
+        </div>
         <div class="deck-section-controls">
           <label for="deck-target">カードの追加先</label>
           <select id="deck-target"><option value="deck">通常デッキ（山札）</option><option value="gachi">ガチャレンジ</option><option value="extra">超次元</option><option value="battle">開始時バトルゾーン</option></select>
@@ -119,6 +123,28 @@
   </section>
 
   <div id="context-menu" class="context-menu hidden"></div>
+  <dialog id="deck-image-import" class="deck-import-dialog" aria-labelledby="deck-import-title">
+    <div class="import-head"><h2 id="deck-import-title">画像からデッキを読み込む</h2><button type="button" id="close-deck-import" class="icon-button">閉じる</button></div>
+    <p id="import-status" class="import-status" role="status" aria-live="polite"></p>
+    <section id="import-upload" class="import-upload">
+      <label>デッキ画像<input id="import-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff"></label>
+      <img id="import-preview" class="hidden" alt="選択したデッキ画像">
+      <label>読み込み方法<select id="import-mode"><option value="replace">現在のデッキ全体を置き換える</option><option value="append">現在のデッキに追加する</option></select></label>
+      <label class="import-check"><input id="import-skip-review" type="checkbox">候補の画像選択を省略し、第1候補を一括で使用する</label>
+      <p class="muted">選択を省略すると、一致度が低い領域にも第1候補を使います。読み込み後に編集できます。同じカードの別画像は、1枚ずつ選んだ画像を保持します。GR・超次元は専用枠へ振り分けます。</p>
+      <button id="import-analyze" type="button" class="button button-primary">画像を解析する</button>
+    </section>
+    <section id="import-review" class="hidden">
+      <p id="import-progress" class="import-progress"></p>
+      <div class="import-review-layout">
+        <aside class="import-input"><p id="import-position"></p><img id="import-crop" alt="確認中の切り出し画像"><p id="import-reason"></p></aside>
+        <div><div id="import-candidates" class="import-candidates"></div>
+          <div class="import-search"><p class="muted">候補にない場合はカード名で検索して選択できます。</p><form id="import-search-form"><input id="import-card-search" type="search" aria-label="取り込むカード名" placeholder="カード名で探す"><button type="submit" class="button button-secondary">検索</button></form><div id="import-search-results" class="import-candidates"></div></div>
+        </div>
+      </div>
+      <div class="import-actions"><button id="import-previous" class="button button-secondary">前のカード</button><button id="import-next" class="button button-secondary">次のカード</button><button id="import-exclude" class="button button-quiet">この領域を除外</button><button id="import-accept-all" class="button button-secondary">残りを第1候補で一括反映</button><button id="import-apply" class="button button-primary">選択内容をデッキに反映</button></div>
+    </section>
+  </dialog>
   <div id="image-variant-picker" class="modal hidden"><div class="modal-card image-variant-modal"><div class="modal-head"><div><p class="eyebrow">CARD IMAGE</p><h2 id="image-variant-title">使用する画像を選ぶ</h2></div><button id="close-image-variant" class="icon-button">閉じる</button></div><p class="muted">画像を一覧で確認し、デッキに使用するものを選択してください。</p><div id="image-variant-grid" class="image-variant-grid"></div></div></div>
   <div id="deck-inspector" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><p class="eyebrow">ZONE VIEW</p><h2 id="inspector-title">山札を見る</h2></div><button id="close-inspector" class="icon-button">閉じる</button></div><p class="muted">カードを選択して、手札や各ゾーンへ移動できます。</p><div id="inspector-cards" class="inspector-grid"></div><div class="inspector-actions"><button data-inspector-move="battle" class="button button-secondary">バトルゾーンへ</button><button data-inspector-move="waiting" class="button button-secondary">待機ゾーンへ</button><button data-inspector-move="extra" class="button button-secondary">超次元へ</button><button data-inspector-move="gachi" class="button button-secondary">ガチャレンジへ</button><button data-inspector-move="abyss" class="button button-secondary">深淵へ</button><button data-inspector-move="hand" class="button button-secondary">手札へ</button><button data-inspector-move="mana" class="button button-secondary">マナへ</button><button data-inspector-move="graveyard" class="button button-secondary">墓地へ</button><button data-inspector-move="shields" class="button button-secondary">シールドゾーンへ</button><button data-inspector-move="shields" data-position="face_up" class="button button-secondary">表向きでシールドゾーンへ</button><button data-inspector-position="top" class="button button-secondary">山札の上へ</button><button data-inspector-position="bottom" class="button button-secondary">山札の下へ</button><button data-inspector-shuffle class="button button-primary">山札に加えてシャッフル</button></div></div></div>
   <div id="zone-settings" class="zone-settings hidden"><p class="eyebrow">VISIBLE ZONES</p><label><input type="checkbox" data-zone-toggle="extra" checked> 超次元</label><label><input type="checkbox" data-zone-toggle="gachi" checked> ガチャレンジ</label><label><input type="checkbox" data-zone-toggle="abyss" checked> 深淵</label></div>
@@ -154,6 +180,7 @@
   <script src="/stack-mode.js"></script>
   <script src="/special-zone-menu.js"></script>
   <script src="/card-rules.js"></script>
+  <script src="/deck-image-import.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -1,1 +1,7 @@
 /dm_data
+/.venv/
+/work/
+/Dscan/cache/
+/Dscan/reports/
+__pycache__/
+*.pyc
