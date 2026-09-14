@@ -65,6 +65,48 @@ node tests/deck-image-import-live.test.cjs
 
 実データを使う最後のテストは、ローカルの `dm_data` と `tests/fixtures/deck-list.png` が必要です。テスト用サーバーは一時ポートを使用し、保存デッキと画面確認用画像をGit対象外の `work/` 内に置きます。通常の `saved_decks/` は変更しません。
 
+## 画像ファイルからデッキJSONを生成する（Webサーバー不要）
+
+`pDM` フォルダで以下を実行します。Python環境は起動手順と共通です。
+
+```powershell
+.\image_to_deck.cmd "C:\path\to\deck.png" --name "取り込んだデッキ"
+```
+
+`projectDM` フォルダからなら `.\pDM\image_to_deck.cmd "C:\path\to\deck.png"` で実行できます。引数の相対パスはコマンドを実行したフォルダが基準です。
+
+保存先は既定で `pDM/saved_decks/deck-image-日時-識別子.json`。pDMの通常保存と同じversion 4形式なので、Webアプリを開いて「一覧を更新」を押すと「今までのデッキ」から読み込めます。カードIDと画像番号を1枚ごとに保持し、GR・超次元は専用枠に分けます。画像認識以外のためにWebサーバーへ接続することはなく、起動も不要です。
+
+既定では、未確定の領域も第1候補を使ってJSONを生成します。候補・類似度・採用結果はデッキJSONと分けて `pDM/Dscan/reports/<出力名>.analysis.json` に保存します。実行後に保存先と未確定候補の採用数を表示します。
+
+```powershell
+# 保存先を指定する
+.\image_to_deck.cmd .\deck.png -o .\saved_decks\my-deck.json --name "自分のデッキ"
+
+# 未確定の領域を除外して生成する
+.\image_to_deck.cmd .\deck.png --on-uncertain skip
+
+# 未確定があれば解析レポートだけ保存し、デッキJSONを生成せず終了する
+.\image_to_deck.cmd .\deck.png --on-uncertain error
+
+# Pythonから直接実行する（macOS/Linuxでは .venv/bin/python を使用）
+.\.venv\Scripts\python.exe .\image_to_deck.py .\deck.png --on-uncertain best
+```
+
+`--report` で解析レポートの保存先を変更できます。レポートはデッキ一覧に混ざらないよう `saved_decks` の外に指定します。既存ファイルは既定で上書きしません。上書きする場合は `--force` を指定してください。`saved_decks` 内のファイル名はpDMの仕様に合わせて半角英数字等にし、日本語の表示名は `--name` で指定します。
+
+終了コードは成功0、入力や保存エラー2、`--on-uncertain error` による未確定検出3です。通常デッキが40枚を超える場合や、採用するカードがない場合は保存しません。枚数を満たすための自動補充や切り捨ては行いません。JSONは使用したpDMのDBのIDを参照するため、別のDBへ持ち込む際はIDの対応に注意してください。
+
+ほかのPythonコードからも呼び出せます（`pDM` をインポート可能な場所に配置）。
+
+```python
+from image_to_deck import convert_image
+
+result = convert_image("deck.png", "saved_decks/my-deck.json",
+                       name="自分のデッキ", on_uncertain="best")
+print(result["output"])
+```
+
 ## 現在の操作
 
 - カードをクリック：選択。`Ctrl` / `Command` を押しながら複数選択
